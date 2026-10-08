@@ -13,6 +13,8 @@ final class GmailSource: MailSource {
   private let primaryOnly: Bool
   private let interval: TimeInterval
   private var access: GoogleOAuth.Token?
+  /// The refresh token, read from the Keychain once and kept here.
+  private var refreshToken: String?
   private var cache: [String: GmailMail.Message] = [:]
   private var poll: Timer?
   private var fetching = false
@@ -32,9 +34,10 @@ final class GmailSource: MailSource {
     self.interval = interval
     super.init(id: GmailMail.accountID(account.email), name: account.name,
                inboxURL: GmailMail.webURL(email: account.email))
+    refreshToken = Keychain.read(email)
   }
 
-  var signedIn: Bool { Keychain.read(email) != nil }
+  var signedIn: Bool { refreshToken != nil }
 
   override func start() {
     refresh()
@@ -55,7 +58,7 @@ final class GmailSource: MailSource {
   override func refresh() {
     guard !fetching, status != .signingIn else { return }
     guard let client = Self.loadClient() else { status = .needsSetup; return }
-    guard let refreshToken = Keychain.read(email) else { status = .needsSignIn; return }
+    guard let refreshToken else { status = .needsSignIn; return }
     fetching = true
     Task {
       defer { fetching = false }
@@ -64,6 +67,7 @@ final class GmailSource: MailSource {
       } catch let e as GoogleOAuth.TokenError {
         if case .invalidGrant = e {
           Keychain.delete(email)
+          self.refreshToken = nil
           clear()
           status = .needsSignIn
         } else if case .other(let msg) = e {
@@ -161,6 +165,7 @@ final class GmailSource: MailSource {
       case .success(let token):
         guard let refresh = token.refresh else { self.status = .error("Google didn't return a refresh token."); return }
         Keychain.save(self.email, refresh)
+        self.refreshToken = refresh
         self.access = token
         self.status = .loading
         self.refresh()
@@ -178,6 +183,7 @@ final class GmailSource: MailSource {
 
   func signOut() {
     Keychain.delete(email)
+    refreshToken = nil
     access = nil
     cache = [:]
     clear()
