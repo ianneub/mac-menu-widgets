@@ -56,9 +56,14 @@ final class StatusPanel: NSObject {
         labelHosting.centerXAnchor.constraint(equalTo: button.centerXAnchor),
         labelHosting.centerYAnchor.constraint(equalTo: button.centerYAnchor),
       ])
-      button.target = self
-      button.action = #selector(togglePopup)
-      button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+      if #available(macOS 27, *) {
+        // The menu bar opens and closes the popup (see the delegate below).
+        statusItem.expandedInterfaceDelegate = self
+      } else {
+        button.target = self
+        button.action = #selector(togglePopup)
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+      }
     }
 
     let root = PopupChrome(content: AnyView(widget.panel(host: host))) { [weak self] size in
@@ -71,11 +76,18 @@ final class StatusPanel: NSObject {
 
   var isOpen: Bool { popup.isVisible }
 
+  /// Before macOS 27: the icon's click toggles the popup. (Clicks on our own
+  /// icon reach us as our own events there, so the outside-click monitor
+  /// never sees them.)
   @objc func togglePopup() {
     isOpen ? close() : open()
   }
 
+  /// Shows the popup. On macOS 27 a click on the icon does this through
+  /// the menu bar's session; calling it directly (the debug hooks) shows
+  /// the popup without one.
   func open() {
+    guard !isOpen else { return }
     willOpen()
     statusItem.button?.highlight(true)
     position()
@@ -84,7 +96,16 @@ final class StatusPanel: NSObject {
     installMonitors()
   }
 
+  /// Closes the popup: Esc, a click elsewhere, or the widget asking. On
+  /// macOS 27 that ends the menu bar's session, which then calls hide().
   func close() {
+    if #available(macOS 27, *), let session = statusItem.expandedInterfaceSession {
+      session.cancel()
+    }
+    hide()
+  }
+
+  private func hide() {
     guard isOpen else { return }
     hideSidePaneNow()
     popup.orderOut(nil)
@@ -207,8 +228,16 @@ final class StatusPanel: NSObject {
 
   private func installMonitors() {
     removeMonitors()
+    // Clicks anywhere outside the app close the popup, the menu bar
+    // included: on macOS 27 the menu bar doesn't end the session when the
+    // icon is clicked again (it just swallows the click), but this monitor
+    // sees it. The session begins on mouse-down, so ending it here can't
+    // race a reopen the way target/action on mouse-up did.
     outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-      Task { @MainActor in self?.close() }
+      Task { @MainActor in
+        guard let self, self.isOpen else { return }
+        self.close()
+      }
     }
     keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown]) { [weak self] event in
       guard let self else { return event }
@@ -298,5 +327,20 @@ private struct LabelContainer: View {
     content
       .fixedSize()
       .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { onWidth($0) }
+  }
+}
+
+/// macOS 27: the menu bar opens the popup by beginning a session (a click on
+/// the icon or the padding around it, or menu bar keyboard navigation) and
+/// may end it. The app ends it through close(): Esc, a link opened from the
+/// panel, or any click outside the app, including on the icon itself.
+@available(macOS 27, *)
+extension StatusPanel: NSStatusItemExpandedInterfaceDelegate {
+  nonisolated func statusItem(_ statusItem: NSStatusItem, didBegin expandedInterfaceSession: NSStatusItemExpandedInterfaceSession) {
+    MainActor.assumeIsolated { open() }
+  }
+
+  nonisolated func statusItemDidEndExpandedInterfaceSession(_ statusItem: NSStatusItem, animated: Bool) {
+    MainActor.assumeIsolated { hide() }
   }
 }
