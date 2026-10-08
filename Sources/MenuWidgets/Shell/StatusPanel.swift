@@ -39,10 +39,11 @@ final class StatusPanel: NSObject {
     host.controller = self
 
     // Label: SwiftUI inside the status button; the item's length follows
-    // the label's measured width.
+    // the label's measured width. The menu bar already spaces items apart, so
+    // only a point a side, which keeps the open highlight off the text.
     if let button = statusItem.button {
       let label = LabelContainer(content: AnyView(widget.label())) { [weak self] width in
-        self?.statusItem.length = ceil(width) + 8
+        self?.statusItem.length = ceil(width) + 2
       }
       let labelHosting = NSHostingView(rootView: label)
       labelHosting.translatesAutoresizingMaskIntoConstraints = false
