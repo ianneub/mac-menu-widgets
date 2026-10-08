@@ -13,7 +13,8 @@ Click one to open its panel; hover a row (or use ↑/↓) for a detail pane besi
 - **Time** shows the date and time (`Thu Oct 8  7:49 AM`). Its panel lists your
   world clocks with offsets, sunrise and sunset, and the moon phase, with a map
   and twilight times for each zone.
-- **Weather** shows the current temperature. Its panel has a multi-day
+- **Weather** shows the current temperature where your Mac is (or for a city
+  you pick). Its panel has a multi-day
   forecast with the chance of rain per day and hourly rain bars. US locations
   use the National Weather Service forecast (what weather.gov shows); elsewhere,
   and as a fallback, it uses [Open-Meteo](https://open-meteo.com).
@@ -101,6 +102,7 @@ defaults are:
   },
   "weather": {
     "enabled": true,
+    "useLocation": true,
     "name": "Atlanta GA",
     "latitude": 33.749,
     "longitude": -84.388,
@@ -130,6 +132,12 @@ defaults are:
 - `zones`: an IANA time zone string (`"Asia/Tokyo"`) or an object with a
   `name`, `tz` and optional `lat`/`lon` for the map and sun times.
 - `unit`: `"F"` or `"C"`.
+- `weather.useLocation`: follow the Mac's location (Location Services, city-level
+  accuracy, named by Apple's reverse geocoding). The first time, macOS asks
+  whether MenuWidgets may use your location. While it's off, denied or not yet
+  known, the forecast is for `name`, `latitude` and `longitude`. Picking a city
+  in the panel's location search turns it off; picking **Current Location**
+  there turns it back on.
 - `mail.gmail`: the Gmail accounts to watch, each `{"name": "Work", "email":
   "you@example.com"}`. See [Gmail setup](#gmail-setup).
 - `mail.heyCommand`: the `hey` CLI, by name or full path. (The app is started

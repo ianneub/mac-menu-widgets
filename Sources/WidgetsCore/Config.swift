@@ -44,6 +44,9 @@ public struct WidgetsConfig: Codable, Sendable {
 
   public struct WeatherSettings: Codable, Sendable {
     public var enabled: Bool = true
+    /// Follow the Mac's location (Location Services); `name`, `latitude`
+    /// and `longitude` are the fallback when it's off or unknown.
+    public var useLocation: Bool = true
     public var name: String = "Atlanta GA"
     public var latitude: Double = 33.749
     public var longitude: Double = -84.388
@@ -168,6 +171,7 @@ extension WidgetsConfig.WeatherSettings {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let d = Self()
     enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? d.enabled
+    useLocation = (try? c.decode(Bool.self, forKey: .useLocation)) ?? d.useLocation
     name = (try? c.decode(String.self, forKey: .name)) ?? d.name
     latitude = (try? c.decode(Double.self, forKey: .latitude)) ?? d.latitude
     longitude = (try? c.decode(Double.self, forKey: .longitude)) ?? d.longitude

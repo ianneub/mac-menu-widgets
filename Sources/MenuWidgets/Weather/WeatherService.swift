@@ -12,7 +12,13 @@ final class WeatherService: ObservableObject {
   @Published private(set) var openMeteo: Weather.OpenMeteoReport?
   @Published private(set) var nwsDays: [Weather.Day] = []
   @Published private(set) var nwsHours: [Weather.Hour] = []
+  /// What the widget runs on: the config's settings, with the point and
+  /// name replaced by the Mac's location when `useLocation` is on.
   @Published private(set) var settings: WidgetsConfig.WeatherSettings
+  /// Whether macOS lets the widget use the Mac's location.
+  @Published private(set) var locationAccess: WeatherLocator.Access = .unknown
+  private var configSettings: WidgetsConfig.WeatherSettings
+  private var locator: WeatherLocator?
   /// Ticks every minute (today's chart dims past hours; "today" rolls over).
   @Published private(set) var now = Date()
   @Published private(set) var lastSuccess: Date?
@@ -34,26 +40,35 @@ final class WeatherService: ObservableObject {
   nonisolated static let userAgent = "ianneub.weather (Mac menu widgets)"
 
   init(config: ConfigStore) {
-    settings = config.config.weather
+    let c = config.config.weather
+    configSettings = c
+    // The last known place (kept by the locator) is used from the start, so
+    // launch doesn't fetch the config's point first.
+    let loc = c.useLocation ? WeatherLocator() : nil
+    locator = loc
+    settings = WeatherLocation.effective(c, located: loc?.access == .denied ? nil : loc?.place)
     loadCache()
+    if let loc { wire(loc) }
     config.$config
       .map(\.weather)
       .removeDuplicates { a, b in
-        a.latitude == b.latitude && a.longitude == b.longitude && a.name == b.name
+        a.latitude == b.latitude && a.longitude == b.longitude && a.name == b.name && a.useLocation == b.useLocation
           && a.forecastDays == b.forecastDays && a.showTodayRange == b.showTodayRange && a.unit == b.unit
       }
       .dropFirst()
       .sink { [weak self] s in
         guard let self else { return }
-        let refetch = s.latitude != self.settings.latitude || s.longitude != self.settings.longitude
-          || s.forecastDays != self.settings.forecastDays
-        self.settings = s
-        if refetch { self.refresh() }
+        self.configSettings = s
+        self.syncLocator()
+        self.apply()
       }
       .store(in: &cancellables)
 
     timers.append(Timer.scheduledTimer(withTimeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated { self?.refresh() }
+      MainActor.assumeIsolated {
+        self?.locator?.update()
+        self?.refresh()
+      }
     })
     timers.append(Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated {
@@ -68,10 +83,54 @@ final class WeatherService: ObservableObject {
       // The network is often not back the instant the lid opens.
       MainActor.assumeIsolated {
         self?.now = Date()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self?.refresh() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+          self?.locator?.update()
+          self?.refresh()
+        }
       }
     }
     refresh()
+    locator?.update()
+  }
+
+  // MARK: location
+
+  private func wire(_ loc: WeatherLocator) {
+    locationAccess = loc.access
+    loc.onPlace = { [weak self] _ in self?.apply() }
+    loc.onAccess = { [weak self] a in
+      self?.locationAccess = a
+      self?.apply()
+    }
+  }
+
+  /// Starts or stops following the Mac's location as the config says.
+  private func syncLocator() {
+    if configSettings.useLocation, locator == nil {
+      let loc = WeatherLocator()
+      locator = loc
+      wire(loc)
+      loc.update()
+    } else if !configSettings.useLocation, let loc = locator {
+      loc.stop()
+      locator = nil
+      locationAccess = .unknown
+    }
+  }
+
+  /// Recomputes the settings; a new point (or forecast length) refetches.
+  private func apply() {
+    let place = locator?.access == .denied ? nil : locator?.place
+    let s = WeatherLocation.effective(configSettings, located: place)
+    let refetch = s.latitude != settings.latitude || s.longitude != settings.longitude
+      || s.forecastDays != settings.forecastDays
+    settings = s
+    if refetch { refresh() }
+  }
+
+  /// Whether the shown place is the Mac's location.
+  var followingLocation: Bool {
+    configSettings.useLocation && locationAccess != .denied && locator?.place != nil
   }
 
   var point: Weather.Point? {
@@ -97,6 +156,8 @@ final class WeatherService: ObservableObject {
 
   /// Turned off in the config: no more fetches.
   func stop() {
+    locator?.stop()
+    locator = nil
     refreshTask?.cancel()
     timers.forEach { $0.invalidate() }
     timers = []

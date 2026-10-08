@@ -144,6 +144,8 @@ final class WeatherPanelState: ObservableObject {
 
   // MARK: location editing
 
+  /// Row 0 of the editor's list is "Current Location"; searched places
+  /// follow from row 1.
   func startEditing() {
     editing = true
     query = service?.settings.name ?? ""
@@ -171,21 +173,34 @@ final class WeatherPanelState: ObservableObject {
       let results = await service.geocode(q)
       guard !Task.isCancelled, self.editing else { return }
       self.suggestions = results
-      self.suggestionIndex = 0
+      self.suggestionIndex = results.isEmpty ? 0 : 1
     }
   }
 
   func commit() {
-    guard !suggestions.isEmpty else { return }
-    pick(suggestions[max(0, min(suggestionIndex, suggestions.count - 1))])
+    let i = max(0, min(suggestionIndex, suggestions.count))
+    i == 0 ? pickCurrentLocation() : pick(suggestions[i - 1])
   }
 
+  /// A searched place: stop following the Mac's location.
   func pick(_ place: Weather.Place) {
     ConfigStore.shared.update {
       $0.weather.name = place.name
       $0.weather.latitude = place.latitude
       $0.weather.longitude = place.longitude
+      $0.weather.useLocation = false
     }
+    cancelEditing()
+  }
+
+  /// Follow the Mac's location again (or, if macOS has it turned off for
+  /// the app, open the setting).
+  func pickCurrentLocation() {
+    if service?.locationAccess == .denied,
+       let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices") {
+      NSWorkspace.shared.open(url)
+    }
+    ConfigStore.shared.update { $0.weather.useLocation = true }
     cancelEditing()
   }
 }
@@ -215,7 +230,7 @@ struct WeatherPanel: View {
     let rows = service.rows
     VStack(alignment: .leading, spacing: 14) {
       hero
-      if state.editing && !state.suggestions.isEmpty { suggestionList }
+      if state.editing { suggestionList }
       if service.current == nil {
         Text("Fetching forecast…")
           .font(.system(size: WeatherStyle.bodySmall).italic())
@@ -311,7 +326,7 @@ struct WeatherPanel: View {
             state.startEditing()
           } label: {
             HStack(spacing: 6) {
-              Image(systemName: "mappin.and.ellipse")
+              Image(systemName: service.followingLocation ? "location.fill" : "mappin.and.ellipse")
               Text(service.settings.name.uppercased()).tracking(1)
             }
             .font(.system(size: WeatherStyle.body))
@@ -320,7 +335,7 @@ struct WeatherPanel: View {
           }
           .buttonStyle(.plain)
           .onHover { inside in inside ? NSCursor.pointingHand.push() : NSCursor.pop() }
-          .help("Change location")
+          .help(locationHelp)
         }
         if let current {
           HStack(alignment: .top, spacing: 28) {
@@ -355,7 +370,7 @@ struct WeatherPanel: View {
         .onChange(of: state.query) { state.queryChanged() }
         .onSubmit { state.commit() }
         .onKeyPress(.downArrow) {
-          if state.suggestionIndex < state.suggestions.count - 1 { state.suggestionIndex += 1 }
+          if state.suggestionIndex < state.suggestions.count { state.suggestionIndex += 1 }
           return .handled
         }
         .onKeyPress(.upArrow) {
@@ -374,9 +389,18 @@ struct WeatherPanel: View {
     }
   }
 
+  private var locationHelp: String {
+    if service.settings.useLocation && service.locationAccess == .denied {
+      return "Location Services is off for MenuWidgets, so this is the place in the config. Click to change."
+    }
+    return service.followingLocation ? "Your current location. Click to change." : "Change location"
+  }
+
   private var suggestionList: some View {
     VStack(spacing: 0) {
-      ForEach(Array(state.suggestions.enumerated()), id: \.offset) { i, place in
+      currentLocationRow
+      ForEach(Array(state.suggestions.enumerated()), id: \.offset) { n, place in
+        let i = n + 1
         let selected = i == state.suggestionIndex
         HStack(spacing: 8) {
           Text(place.name)
@@ -398,6 +422,31 @@ struct WeatherPanel: View {
       }
     }
     .padding(.horizontal, 4)
+  }
+
+  private var currentLocationRow: some View {
+    let selected = state.suggestionIndex == 0
+    let denied = service.locationAccess == .denied
+    return HStack(spacing: 8) {
+      Image(systemName: "location.fill")
+        .font(.system(size: WeatherStyle.bodySmall))
+        .foregroundStyle(selected ? Color.white : Color.accentColor)
+      Text("Current Location")
+        .font(.system(size: WeatherStyle.body))
+        .foregroundStyle(selected ? Color.white : Color.primary)
+      if denied {
+        Text("Turn on in System Settings")
+          .font(.system(size: WeatherStyle.bodySmall))
+          .foregroundStyle(selected ? Color.white.opacity(0.8) : Color.secondary)
+      }
+      Spacer()
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color.accentColor : Color.clear))
+    .contentShape(Rectangle())
+    .onHover { if $0 { state.suggestionIndex = 0 } }
+    .onTapGesture { state.pickCurrentLocation() }
   }
 }
 

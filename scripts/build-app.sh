@@ -38,6 +38,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSLocationUsageDescription</key><string>MenuWidgets uses your approximate location to show the weather where you are.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>MenuWidgets uses your approximate location to show the weather where you are.</string>
   <key>NSRemindersFullAccessUsageDescription</key><string>MenuWidgets shows your reminders due today and tomorrow in the menu bar, and lets you add, edit and check them off.</string>
 </dict>
 </plist>
