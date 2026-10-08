@@ -188,6 +188,9 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   #expect(c.mail.gmail == [.init(name: "Work", email: "me@example.com")])
   #expect(c.mail.pollIntervalSec == 10)
   #expect(c.mail.hey && c.mail.primaryOnly && c.mail.notify)
+  #expect(c.mail.sound == "default")
+  let quiet = try JSONDecoder().decode(WidgetsConfig.self, from: Data(#"{"mail": {"sound": "Bottle"}}"#.utf8))
+  #expect(quiet.mail.sound == "Bottle")
   #expect(WidgetsConfig().mail.gmail.isEmpty)
 }
 

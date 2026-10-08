@@ -119,7 +119,8 @@ defaults are:
     "gmail": [],
     "primaryOnly": true,
     "pollIntervalSec": 30,
-    "notify": true
+    "notify": true,
+    "sound": "default"
   }
 }
 ```
@@ -146,6 +147,10 @@ defaults are:
   `false` if you don't use HEY.
 - `mail.primaryOnly`: count only Gmail's Primary category; `false` counts the
   whole inbox.
+- `mail.sound`: the new-mail banner's sound: `"default"`, `"none"`, or a sound
+  by name from `/System/Library/Sounds` or `~/Library/Sounds` (`"Bottle"`,
+  `"Tink"`, `"Pop"`). To hear it, start the app once with
+  `MENU_WIDGETS_MAIL_TEST=1`, which posts a sample banner after a few seconds.
 
 ### Gmail setup
 

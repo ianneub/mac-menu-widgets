@@ -89,6 +89,9 @@ public struct WidgetsConfig: Codable, Sendable {
     public var pollIntervalSec: Int = 30
     /// A banner for each new email (click it to open the email).
     public var notify: Bool = true
+    /// The banner's sound: "default" (the system's), "none", or a sound by
+    /// name ("Bottle", "Tink"; see /System/Library/Sounds and ~/Library/Sounds).
+    public var sound: String = "default"
     public init() {}
   }
 
@@ -207,5 +210,6 @@ extension WidgetsConfig.MailSettings {
     primaryOnly = (try? c.decode(Bool.self, forKey: .primaryOnly)) ?? d.primaryOnly
     pollIntervalSec = max(10, (try? c.decode(Int.self, forKey: .pollIntervalSec)) ?? d.pollIntervalSec)
     notify = (try? c.decode(Bool.self, forKey: .notify)) ?? d.notify
+    sound = (try? c.decode(String.self, forKey: .sound)) ?? d.sound
   }
 }

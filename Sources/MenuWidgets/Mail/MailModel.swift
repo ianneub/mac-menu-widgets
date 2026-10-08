@@ -26,6 +26,17 @@ final class MailModel: ObservableObject {
 
   init(config: ConfigStore) {
     settings = config.config.mail
+    // MENU_WIDGETS_MAIL_TEST=1 posts a sample banner (with the configured
+    // sound) a few seconds after launch, to hear and see the notification.
+    if ProcessInfo.processInfo.environment["MENU_WIDGETS_MAIL_TEST"] != nil {
+      let sample = MailItem(id: "test:\(UUID().uuidString)", account: "test", revision: "1", sender: "MenuWidgets",
+                            subject: "A sample new email", snippet: "This is what a new email's banner looks like.",
+                            date: Date(), url: URL(string: "https://mail.google.com/")!)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+        guard let self else { return }
+        self.notifier.post([sample], account: "Test", inbox: sample.url, sound: self.settings.sound)
+      }
+    }
     config.$config
       .map(\.mail)
       .removeDuplicates()
@@ -83,7 +94,7 @@ final class MailModel: ObservableObject {
     let news = MailDiff.news(previous: previous, since: previousFetch, current: src.items ?? [])
     notifier.withdraw(news.gone)
     guard settings.notify, !news.fresh.isEmpty else { return }
-    notifier.post(news.fresh, account: src.name, inbox: src.inboxURL)
+    notifier.post(news.fresh, account: src.name, inbox: src.inboxURL, sound: settings.sound)
   }
 
   /// Turned off in the config: stop polling and the `hey watch` process.
@@ -183,14 +194,37 @@ final class MailNotifier: NSObject, UNUserNotificationCenterDelegate {
     }
   }
 
-  func post(_ items: [MailItem], account: String, inbox: URL) {
+  /// The configured sound: "default", "none", or a sound file's name, found
+  /// in the system's or the user's Sounds folder (or the app bundle).
+  static func sound(_ name: String) -> UNNotificationSound? {
+    let n = name.trimmingCharacters(in: .whitespaces)
+    switch n.lowercased() {
+    case "", "none": return nil
+    case "default": return .default
+    default:
+      // A bare name ("Bottle") gets the extension of the file that has it.
+      if (n as NSString).pathExtension.isEmpty {
+        let dirs = [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Sounds").path,
+                    "/Library/Sounds", "/System/Library/Sounds"]
+        for dir in dirs {
+          for ext in ["aiff", "aif", "caf", "wav"] where FileManager.default.fileExists(atPath: "\(dir)/\(n).\(ext)") {
+            return UNNotificationSound(named: UNNotificationSoundName("\(n).\(ext)"))
+          }
+        }
+      }
+      return UNNotificationSound(named: UNNotificationSoundName(n))
+    }
+  }
+
+  func post(_ items: [MailItem], account: String, inbox: URL, sound: String) {
+    let tone = Self.sound(sound)
     if items.count > MailDiff.bannerLimit {
       let c = UNMutableNotificationContent()
       c.title = "\(items.count) new emails"
       c.subtitle = account
       c.body = items.prefix(4).map(\.sender).joined(separator: ", ")
       c.threadIdentifier = account
-      c.sound = .default
+      c.sound = tone
       c.userInfo = ["url": inbox.absoluteString]
       center.add(UNNotificationRequest(identifier: "summary:\(account):\(UUID().uuidString)", content: c, trigger: nil))
       return
@@ -202,7 +236,7 @@ final class MailNotifier: NSObject, UNUserNotificationCenterDelegate {
       c.body = item.snippet.isEmpty ? account : "\(account) · \(item.snippet)"
       c.threadIdentifier = account
       // One sound per batch.
-      c.sound = i == 0 ? .default : nil
+      c.sound = i == 0 ? tone : nil
       c.userInfo = ["url": item.url.absoluteString]
       center.add(UNNotificationRequest(identifier: item.id, content: c, trigger: nil))
     }
