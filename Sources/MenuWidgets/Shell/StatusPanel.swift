@@ -19,6 +19,7 @@ final class StatusPanel: NSObject {
   private var keyMonitor: Any?
   private let willOpen: () -> Void
   private let didClose: () -> Void
+  private let escape: () -> Bool
   /// Keeps the widget alive: the registry creates it and hands it over.
   private let widget: AnyObject
 
@@ -32,6 +33,7 @@ final class StatusPanel: NSObject {
     self.widget = widget
     willOpen = { [weak widget] in widget?.popupWillOpen() }
     didClose = { [weak widget] in widget?.popupDidClose() }
+    escape = { [weak widget] in widget?.handleEscape() ?? false }
 
     popup = FloatingPanel()
     popupHosting = NSHostingView(rootView: AnyView(EmptyView()))
@@ -200,13 +202,15 @@ final class StatusPanel: NSObject {
     keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown]) { [weak self] event in
       guard let self else { return event }
       if event.type == .keyDown, event.keyCode == 53 { // Esc
-        self.close()
+        if !self.escape() { self.close() }
         return nil
       }
       if event.type == .leftMouseDown {
         // A click in another of our status items' buttons closes this one.
+        // Only status-bar windows count: a click in one of our pop-up
+        // menus (a Picker in the panel) must not close the panel.
         let w = event.window
-        if w !== self.popup, w !== self.sidePane, w !== self.statusItem.button?.window {
+        if w !== self.statusItem.button?.window, let w, w.className.contains("StatusBar") {
           self.close()
         }
       }

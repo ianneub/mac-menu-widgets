@@ -7,6 +7,8 @@ enum WidgetRegistry {
   static func makeAll() -> [StatusPanel] {
     let config = ConfigStore.shared
     return [
+      // Right of the clock, as on the Omarchy bar.
+      StatusPanel(RemindersWidget()),
       StatusPanel(TimeWidget(config: config)),
       StatusPanel(WeatherWidget(config: config)),
       StatusPanel(AgentsWidget(config: config)),

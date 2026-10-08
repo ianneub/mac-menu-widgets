@@ -1,5 +1,9 @@
 #!/bin/bash
-# Build MenuWidgets.app into ./build (release, ad-hoc signed).
+# Build MenuWidgets.app into ./build (release). Signed ad hoc unless
+# MENU_WIDGETS_SIGN_IDENTITY (or ~/.config/menu-widgets/sign-identity) names a
+# code-signing identity: macOS ties the Reminders permission to the signature,
+# so an ad-hoc build asks again after every rebuild, and a stable identity
+# (even a self-signed one) keeps it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build -c release
@@ -34,8 +38,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSRemindersFullAccessUsageDescription</key><string>MenuWidgets shows your reminders due today and tomorrow in the menu bar, and lets you add, edit and check them off.</string>
 </dict>
 </plist>
 PLIST
-codesign --force --deep --sign - --identifier com.ianneub.menu-widgets "$APP"
+IDENTITY_FILE="$HOME/.config/menu-widgets/sign-identity"
+IDENTITY="${MENU_WIDGETS_SIGN_IDENTITY:-$( [ -f "$IDENTITY_FILE" ] && head -n1 "$IDENTITY_FILE" || echo -)}"
+codesign --force --deep --sign "$IDENTITY" --identifier com.ianneub.menu-widgets "$APP"
 echo "built $APP ($VERSION)"

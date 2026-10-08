@@ -25,11 +25,14 @@ protocol MenuWidget: AnyObject {
   func popupWillOpen()
   /// Called when the popup closes.
   func popupDidClose()
+  /// Esc in the popup: return true to keep it open (say, to leave a form).
+  func handleEscape() -> Bool
 }
 
 extension MenuWidget {
   func popupWillOpen() {}
   func popupDidClose() {}
+  func handleEscape() -> Bool { false }
 }
 
 /// Handed to a widget's panel so it can drive the popup chrome.
