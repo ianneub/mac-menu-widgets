@@ -1,0 +1,5 @@
+.build/
+build/
+*.bak
+.DS_Store
+.claude/
