@@ -7,6 +7,7 @@ public struct WidgetsConfig: Codable, Sendable {
   public var time: TimeSettings = .init()
   public var weather: WeatherSettings = .init()
   public var agents: AgentsSettings = .init()
+  public var mail: MailSettings = .init()
 
   public init() {}
 
@@ -53,6 +54,29 @@ public struct WidgetsConfig: Codable, Sendable {
     public init() {}
   }
 
+  public struct MailSettings: Codable, Sendable, Equatable {
+    public struct GmailAccount: Codable, Sendable, Equatable {
+      /// Shown in the panel and on banners ("Work").
+      public var name: String
+      public var email: String
+      public init(name: String, email: String) { self.name = name; self.email = email }
+    }
+
+    /// Watch the HEY Imbox through the `hey` CLI.
+    public var hey: Bool = true
+    /// The `hey` CLI: a path, or a name looked up on PATH and the usual
+    /// install spots (launchd's PATH is short).
+    public var heyCommand: String = "hey"
+    public var gmail: [GmailAccount] = []
+    /// Gmail: only the Primary category, like HEY's Imbox.
+    public var primaryOnly: Bool = true
+    /// Seconds between Gmail checks (HEY pushes, so it isn't polled).
+    public var pollIntervalSec: Int = 30
+    /// A banner for each new email (click it to open the email).
+    public var notify: Bool = true
+    public init() {}
+  }
+
   public static var directory: URL {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/menu-widgets")
   }
@@ -80,6 +104,7 @@ extension WidgetsConfig {
     time = (try? c.decode(TimeSettings.self, forKey: .time)) ?? .init()
     weather = (try? c.decode(WeatherSettings.self, forKey: .weather)) ?? .init()
     agents = (try? c.decode(AgentsSettings.self, forKey: .agents)) ?? .init()
+    mail = (try? c.decode(MailSettings.self, forKey: .mail)) ?? .init()
   }
 }
 
@@ -132,5 +157,18 @@ extension WidgetsConfig.AgentsSettings {
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     refreshIntervalSec = (try? c.decode(Int.self, forKey: .refreshIntervalSec)) ?? Self().refreshIntervalSec
+  }
+}
+
+extension WidgetsConfig.MailSettings {
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    let d = Self()
+    hey = (try? c.decode(Bool.self, forKey: .hey)) ?? d.hey
+    heyCommand = (try? c.decode(String.self, forKey: .heyCommand)) ?? d.heyCommand
+    gmail = (try? c.decode([GmailAccount].self, forKey: .gmail)) ?? d.gmail
+    primaryOnly = (try? c.decode(Bool.self, forKey: .primaryOnly)) ?? d.primaryOnly
+    pollIntervalSec = max(10, (try? c.decode(Int.self, forKey: .pollIntervalSec)) ?? d.pollIntervalSec)
+    notify = (try? c.decode(Bool.self, forKey: .notify)) ?? d.notify
   }
 }

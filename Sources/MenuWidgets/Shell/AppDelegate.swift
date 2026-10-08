@@ -6,7 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     // Status items are added right to left, so the last one created sits
-    // furthest left. Order on screen: Claude | weather | time | reminders
+    // furthest left. Order on screen: mail | Claude | weather | time | reminders
     // (like the Omarchy bar). macOS 27 may put a new item at the far left
     // instead; ⌘-drag moves it, and the spot is kept.
     widgets = WidgetRegistry.makeAll()

@@ -4,9 +4,9 @@
 
 <h1 align="center">MenuWidgets</h1>
 
-<p align="center">A world clock, a weather forecast, your reminders and Claude usage meters in the macOS menu bar.</p>
+<p align="center">A world clock, a weather forecast, your reminders, new mail and Claude usage meters in the macOS menu bar.</p>
 
-MenuWidgets is a small native Swift app that adds four items to the menu bar.
+MenuWidgets is a small native Swift app that adds five items to the menu bar.
 Click one to open its panel; hover a row (or use ↑/↓) for a detail pane beside it.
 
 - **Time** shows the date and time (`Thu Oct 8  7:49 AM`). Its panel lists your
@@ -26,6 +26,15 @@ Click one to open its panel; hover a row (or use ↑/↓) for a detail pane besi
 - **Claude** shows your Claude subscription usage: the current limit meters
   with reset countdowns, plus tokens by day and by model from your local Claude
   Code transcripts.
+
+- **Mail** shows an envelope with how many unread conversations wait in your
+  [HEY](https://hey.com) Imbox and your Gmail inboxes (Primary only, by
+  default). Its panel lists them per inbox, newest first; click one to open it
+  in your browser. Each new email gets a notification banner (click it to open
+  the email), which goes away once you read the email elsewhere. HEY is read
+  through the [`hey` CLI](https://github.com/basecamp/hey-cli), whose `watch`
+  pushes changes as they happen; Gmail is checked every 30 seconds through the
+  Gmail API, read-only (headers and snippets only, never message bodies).
 
 ## Requirements
 
@@ -96,7 +105,15 @@ defaults are:
     "showTodayRange": true,
     "unit": "F"
   },
-  "agents": { "refreshIntervalSec": 900 }
+  "agents": { "refreshIntervalSec": 900 },
+  "mail": {
+    "hey": true,
+    "heyCommand": "hey",
+    "gmail": [],
+    "primaryOnly": true,
+    "pollIntervalSec": 30,
+    "notify": true
+  }
 }
 ```
 
@@ -104,6 +121,41 @@ defaults are:
 - `zones`: an IANA time zone string (`"Asia/Tokyo"`) or an object with a
   `name`, `tz` and optional `lat`/`lon` for the map and sun times.
 - `unit`: `"F"` or `"C"`.
+- `mail.gmail`: the Gmail accounts to watch, each `{"name": "Work", "email":
+  "you@example.com"}`. See [Gmail setup](#gmail-setup).
+- `mail.heyCommand`: the `hey` CLI, by name or full path. (The app is started
+  by launchd with a short PATH, so it also looks in `~/.local/share/mise/shims`,
+  `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`.) Set `mail.hey` to
+  `false` if you don't use HEY.
+- `mail.primaryOnly`: count only Gmail's Primary category; `false` counts the
+  whole inbox.
+
+### Gmail setup
+
+Gmail needs an OAuth client of your own, made once in the Google Cloud console
+(one client serves all your accounts, Workspace or not):
+
+1. At [console.cloud.google.com](https://console.cloud.google.com), create a
+   project (any name).
+2. **APIs & Services → Library**: find **Gmail API** and enable it.
+3. **Google Auth Platform** (the OAuth consent screen): fill in an app name and
+   your email, and pick **External** as the audience. Then, under
+   **Audience**, click **Publish app**. Leave it in testing and Google expires
+   the sign-in after 7 days.
+4. **Clients → Create client**, type **Desktop app**. Download its JSON and
+   save it as `~/.config/menu-widgets/google-oauth-client.json`.
+5. Add your accounts under `mail.gmail` in the config, open the Mail panel and
+   click **Sign in with Google** for each one. Google will warn that it hasn't
+   verified the app (it's yours): **Advanced → Go to … (unsafe)**, then allow
+   reading email metadata.
+
+The refresh tokens are kept in your login Keychain (service
+`com.ianneub.menu-widgets.gmail`). To sign an account out, use the **⋯** menu
+next to its name in the panel.
+
+A Google Workspace admin may block unverified apps. If sign-in says access is
+blocked, an admin can allow the client by its ID under **Admin console →
+Security → API controls → Manage third-party app access**.
 
 ## Development
 
@@ -114,7 +166,7 @@ swift scripts/make-icon.swift Assets/AppIcon.png   # redraw the app icon
 ```
 
 `WidgetsCore` holds the pure logic (time zones, astronomy, weather and usage
-parsing, the reminders agenda, repeat rules and "when" parsing) and its tests; `MenuWidgets` is the AppKit/SwiftUI app.
+parsing, the reminders agenda, repeat rules and "when" parsing, mail diffing and the Gmail/HEY/OAuth parsing) and its tests; `MenuWidgets` is the AppKit/SwiftUI app.
 
 ## License
 

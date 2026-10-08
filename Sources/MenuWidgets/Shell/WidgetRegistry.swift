@@ -12,6 +12,7 @@ enum WidgetRegistry {
       StatusPanel(TimeWidget(config: config)),
       StatusPanel(WeatherWidget(config: config)),
       StatusPanel(AgentsWidget(config: config)),
+      StatusPanel(MailWidget(config: config)),
     ]
   }
 }
