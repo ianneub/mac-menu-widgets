@@ -20,6 +20,7 @@ final class StatusPanel: NSObject {
   private let willOpen: () -> Void
   private let didClose: () -> Void
   private let escape: () -> Bool
+  private let shutdown: () -> Void
   /// Keeps the widget alive: the registry creates it and hands it over.
   private let widget: AnyObject
 
@@ -34,6 +35,7 @@ final class StatusPanel: NSObject {
     willOpen = { [weak widget] in widget?.popupWillOpen() }
     didClose = { [weak widget] in widget?.popupDidClose() }
     escape = { [weak widget] in widget?.handleEscape() ?? false }
+    shutdown = { [weak widget] in widget?.shutdown() }
 
     popup = FloatingPanel()
     popupHosting = NSHostingView(rootView: AnyView(EmptyView()))
@@ -89,6 +91,15 @@ final class StatusPanel: NSObject {
     statusItem.button?.highlight(false)
     removeMonitors()
     didClose()
+  }
+
+  /// Takes the item out of the menu bar and stops the widget (it was turned
+  /// off in the config).
+  func remove() {
+    close()
+    if #available(macOS 27, *) { statusItem.expandedInterfaceDelegate = nil }
+    NSStatusBar.system.removeStatusItem(statusItem)
+    shutdown()
   }
 
   // MARK: popup geometry

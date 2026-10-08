@@ -7,6 +7,7 @@ public struct WidgetsConfig: Codable, Sendable {
   public var time: TimeSettings = .init()
   public var weather: WeatherSettings = .init()
   public var agents: AgentsSettings = .init()
+  public var reminders: RemindersSettings = .init()
   public var mail: MailSettings = .init()
 
   public init() {}
@@ -22,6 +23,9 @@ public struct WidgetsConfig: Codable, Sendable {
   }
 
   public struct TimeSettings: Codable, Sendable {
+    /// Every widget has `enabled` (default true); false takes it out of the
+    /// menu bar, and it does no work.
+    public var enabled: Bool = true
     /// "12h" or "24h".
     public var timeFormat: String = "12h"
     /// Date before the time in the menu bar ("Thu Oct 8  7:49 AM"); a
@@ -39,6 +43,7 @@ public struct WidgetsConfig: Codable, Sendable {
   }
 
   public struct WeatherSettings: Codable, Sendable {
+    public var enabled: Bool = true
     public var name: String = "Atlanta GA"
     public var latitude: Double = 33.749
     public var longitude: Double = -84.388
@@ -50,7 +55,13 @@ public struct WidgetsConfig: Codable, Sendable {
   }
 
   public struct AgentsSettings: Codable, Sendable {
+    public var enabled: Bool = true
     public var refreshIntervalSec: Int = 900
+    public init() {}
+  }
+
+  public struct RemindersSettings: Codable, Sendable {
+    public var enabled: Bool = true
     public init() {}
   }
 
@@ -62,6 +73,7 @@ public struct WidgetsConfig: Codable, Sendable {
       public init(name: String, email: String) { self.name = name; self.email = email }
     }
 
+    public var enabled: Bool = true
     /// Watch the HEY Imbox through the `hey` CLI.
     public var hey: Bool = true
     /// The `hey` CLI: a path, or a name looked up on PATH and the usual
@@ -89,6 +101,15 @@ public struct WidgetsConfig: Codable, Sendable {
     return (try? JSONDecoder().decode(WidgetsConfig.self, from: data)) ?? WidgetsConfig()
   }
 
+  /// Like `load`, but nil when the file is there and can't be read as a
+  /// config (half-written, or a typo mid-edit), so the caller can keep what
+  /// it has instead of falling back to the defaults.
+  public static func loadIfValid() -> WidgetsConfig? {
+    guard FileManager.default.fileExists(atPath: fileURL.path) else { return WidgetsConfig() }
+    guard let data = try? Data(contentsOf: fileURL) else { return nil }
+    return try? JSONDecoder().decode(WidgetsConfig.self, from: data)
+  }
+
   public func save() throws {
     try FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
     let enc = JSONEncoder()
@@ -104,6 +125,7 @@ extension WidgetsConfig {
     time = (try? c.decode(TimeSettings.self, forKey: .time)) ?? .init()
     weather = (try? c.decode(WeatherSettings.self, forKey: .weather)) ?? .init()
     agents = (try? c.decode(AgentsSettings.self, forKey: .agents)) ?? .init()
+    reminders = (try? c.decode(RemindersSettings.self, forKey: .reminders)) ?? .init()
     mail = (try? c.decode(MailSettings.self, forKey: .mail)) ?? .init()
   }
 }
@@ -134,6 +156,7 @@ extension WidgetsConfig.TimeSettings {
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let d = Self()
+    enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? d.enabled
     timeFormat = (try? c.decode(String.self, forKey: .timeFormat)) ?? d.timeFormat
     showDate = (try? c.decode(Bool.self, forKey: .showDate)) ?? d.showDate
     zones = (try? c.decode([WidgetsConfig.Zone].self, forKey: .zones)) ?? d.zones
@@ -144,6 +167,7 @@ extension WidgetsConfig.WeatherSettings {
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let d = Self()
+    enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? d.enabled
     name = (try? c.decode(String.self, forKey: .name)) ?? d.name
     latitude = (try? c.decode(Double.self, forKey: .latitude)) ?? d.latitude
     longitude = (try? c.decode(Double.self, forKey: .longitude)) ?? d.longitude
@@ -156,7 +180,15 @@ extension WidgetsConfig.WeatherSettings {
 extension WidgetsConfig.AgentsSettings {
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
+    enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? true
     refreshIntervalSec = (try? c.decode(Int.self, forKey: .refreshIntervalSec)) ?? Self().refreshIntervalSec
+  }
+}
+
+extension WidgetsConfig.RemindersSettings {
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? true
   }
 }
 
@@ -164,6 +196,7 @@ extension WidgetsConfig.MailSettings {
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let d = Self()
+    enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? d.enabled
     hey = (try? c.decode(Bool.self, forKey: .hey)) ?? d.hey
     heyCommand = (try? c.decode(String.self, forKey: .heyCommand)) ?? d.heyCommand
     gmail = (try? c.decode([GmailAccount].self, forKey: .gmail)) ?? d.gmail

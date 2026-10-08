@@ -28,6 +28,7 @@ final class WeatherService: ObservableObject {
   private var refreshTask: Task<Void, Never>?
   private var timers: [Timer] = []
   private var cancellables: Set<AnyCancellable> = []
+  private var wakeObserver: NSObjectProtocol?
 
   static let refreshInterval: TimeInterval = 15 * 60
   nonisolated static let userAgent = "ianneub.weather (Mac menu widgets)"
@@ -61,7 +62,7 @@ final class WeatherService: ObservableObject {
         if Calendar.current.component(.minute, from: n) != Calendar.current.component(.minute, from: self.now) { self.now = n }
       }
     })
-    NSWorkspace.shared.notificationCenter.addObserver(
+    wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
     ) { [weak self] _ in
       // The network is often not back the instant the lid opens.
@@ -93,6 +94,16 @@ final class WeatherService: ObservableObject {
     Weather.buildTodayForecast(activeOpenMeteo, today: today, nwsDays: activeNwsDays)
   }
   var openMeteoHours: [Weather.Hour] { Weather.openMeteoHourly(activeOpenMeteo) }
+
+  /// Turned off in the config: no more fetches.
+  func stop() {
+    refreshTask?.cancel()
+    timers.forEach { $0.invalidate() }
+    timers = []
+    cancellables.removeAll()
+    if let o = wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(o) }
+    wakeObserver = nil
+  }
 
   /// Refreshes when the data is older than `age` (popup open).
   func refreshIfStale(olderThan age: TimeInterval = 60) {

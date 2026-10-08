@@ -60,6 +60,14 @@ final class TimeState: ObservableObject {
     scheduleTick()
   }
 
+  /// Turned off in the config: no more ticks or notifications.
+  func stop() {
+    tick?.invalidate()
+    tick = nil
+    bag.removeAll()
+    hideWork?.cancel()
+  }
+
   /// Re-reads the clock and re-arms the minute timer (timers drift over sleep).
   func refresh() {
     now = Date()

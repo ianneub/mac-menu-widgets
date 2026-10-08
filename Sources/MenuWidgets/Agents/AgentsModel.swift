@@ -81,6 +81,16 @@ final class AgentsModel: ObservableObject {
 
   func refreshNow() { run(.force) }
 
+  /// Turned off in the config: no more collection runs.
+  func stop() {
+    configSub = nil
+    pending = nil
+    [refreshTimer, retryTimer, clockTimer].forEach { $0?.invalidate() }
+    refreshTimer = nil
+    retryTimer = nil
+    clockTimer = nil
+  }
+
   func popupOpened() {
     now = Date()
     openCount += 1

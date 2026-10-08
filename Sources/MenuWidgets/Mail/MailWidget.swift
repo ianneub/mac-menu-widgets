@@ -20,6 +20,7 @@ final class MailWidget: MenuWidget {
     return MailPanel(model: model)
   }
   func popupWillOpen() { model.popupOpened() }
+  func shutdown() { model.stop() }
 }
 
 struct MailLabel: View {

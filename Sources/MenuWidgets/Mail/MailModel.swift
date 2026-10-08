@@ -22,6 +22,7 @@ final class MailModel: ObservableObject {
   private var sourceWatch: [AnyCancellable] = []
   private var cancellables: Set<AnyCancellable> = []
   private var ticker: Timer?
+  private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
   init(config: ConfigStore) {
     settings = config.config.mail
@@ -34,19 +35,21 @@ final class MailModel: ObservableObject {
         self?.rebuild()
       }
       .store(in: &cancellables)
-    NSWorkspace.shared.notificationCenter.addObserver(
+    let ws = NSWorkspace.shared.notificationCenter
+    observers.append((ws, ws.addObserver(
       forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
     ) { [weak self] _ in
       // The network is often not back the instant the lid opens.
       MainActor.assumeIsolated {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self?.refresh() }
       }
-    }
-    NotificationCenter.default.addObserver(
+    }))
+    let nc = NotificationCenter.default
+    observers.append((nc, nc.addObserver(
       forName: NSApplication.willTerminateNotification, object: nil, queue: .main
     ) { [weak self] _ in
       MainActor.assumeIsolated { self?.sources.forEach { $0.stop() } }
-    }
+    }))
     let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.now = Date() }
     }
@@ -81,6 +84,18 @@ final class MailModel: ObservableObject {
     notifier.withdraw(news.gone)
     guard settings.notify, !news.fresh.isEmpty else { return }
     notifier.post(news.fresh, account: src.name, inbox: src.inboxURL)
+  }
+
+  /// Turned off in the config: stop polling and the `hey watch` process.
+  func stop() {
+    cancellables.removeAll()
+    sources.forEach { $0.stop() }
+    sourceWatch = []
+    sources = []
+    ticker?.invalidate()
+    ticker = nil
+    for (center, o) in observers { center.removeObserver(o) }
+    observers = []
   }
 
   // MARK: summary

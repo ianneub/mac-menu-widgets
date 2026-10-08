@@ -9,6 +9,7 @@ import WidgetsCore
 final class HeySource: MailSource {
   private let command: String
   private var watcher: Process?
+  private var watcherOut: Pipe?
   private var lineBuffer = Data()
   private var debounce: DispatchWorkItem?
   private var restartDelay: TimeInterval = 5
@@ -43,6 +44,8 @@ final class HeySource: MailSource {
     poll = nil
     restartWork?.cancel()
     debounce?.cancel()
+    watcherOut?.fileHandleForReading.readabilityHandler = nil
+    watcherOut = nil
     if let w = watcher { w.terminationHandler = nil; w.terminate() }
     watcher = nil
   }
@@ -78,15 +81,20 @@ final class HeySource: MailSource {
   private func startWatch() {
     guard running, watcher == nil, let path = Command.resolve(command) else { return }
     let p = Process()
-    p.executableURL = URL(fileURLWithPath: path)
-    p.arguments = ["watch", "--box", "imbox"]
-    p.environment = Command.environment
+    p.executableURL = URL(fileURLWithPath: "/bin/sh")
+    p.arguments = ["-c", Self.leash, "hey-watch", path, "watch", "--box", "imbox"]
+    var env = Command.environment
+    env["MENU_WIDGETS_PID"] = String(ProcessInfo.processInfo.processIdentifier)
+    p.environment = env
     p.standardInput = FileHandle.nullDevice
     p.standardError = FileHandle.nullDevice
     let out = Pipe()
     p.standardOutput = out
     out.fileHandleForReading.readabilityHandler = { [weak self] h in
       let data = h.availableData
+      // End of file: the process is gone. Without this the handler fires
+      // again and again with nothing to read.
+      if data.isEmpty { h.readabilityHandler = nil; return }
       DispatchQueue.main.async {
         MainActor.assumeIsolated { self?.received(data) }
       }
@@ -100,6 +108,7 @@ final class HeySource: MailSource {
     do {
       try p.run()
       watcher = p
+      watcherOut = out
       lineBuffer = Data()
     } catch {
       scheduleRestart()
@@ -133,6 +142,7 @@ final class HeySource: MailSource {
 
   private func watchEnded() {
     watcher = nil
+    watcherOut = nil
     scheduleRestart()
   }
 
@@ -144,6 +154,18 @@ final class HeySource: MailSource {
     DispatchQueue.main.asyncAfter(deadline: .now() + restartDelay, execute: w)
     restartDelay = min(restartDelay * 2, 300)
   }
+
+  /// Runs the command and ends it when the app goes away, however it went:
+  /// Process puts children in their own process group, so neither launchd
+  /// nor a force quit would take `hey watch` down with the app, and it
+  /// would keep its connection open with no one reading.
+  static let leash = """
+    "$@" & child=$!
+    trap 'kill $child 2>/dev/null; exit 0' TERM INT HUP
+    while kill -0 "$MENU_WIDGETS_PID" 2>/dev/null && kill -0 $child 2>/dev/null; do sleep 2; done
+    kill $child 2>/dev/null
+    wait $child
+    """
 
   static func firstLine(_ s: String, fallback: String) -> String {
     // The CLI's errors are JSON ({"ok": false, "error": "..."}) or plain text.

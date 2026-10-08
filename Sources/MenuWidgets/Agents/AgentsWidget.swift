@@ -19,6 +19,7 @@ final class AgentsWidget: MenuWidget {
   func panel(host: PanelHost) -> some View { AgentsPanel(model: model) }
   func popupWillOpen() { model.popupOpened() }
   func popupDidClose() { model.popupClosed() }
+  func shutdown() { model.stop() }
 }
 
 /// The Claude mark, scaled to fit its frame.

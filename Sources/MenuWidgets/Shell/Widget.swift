@@ -27,12 +27,16 @@ protocol MenuWidget: AnyObject {
   func popupDidClose()
   /// Esc in the popup: return true to keep it open (say, to leave a form).
   func handleEscape() -> Bool
+  /// The widget was turned off in the config: stop timers, watchers and
+  /// child processes. It is dropped afterwards.
+  func shutdown()
 }
 
 extension MenuWidget {
   func popupWillOpen() {}
   func popupDidClose() {}
   func handleEscape() -> Bool { false }
+  func shutdown() {}
 }
 
 /// Handed to a widget's panel so it can drive the popup chrome.

@@ -43,6 +43,7 @@ final class RemindersWidget: MenuWidget {
   func popupWillOpen() { model.popupOpened() }
   func popupDidClose() { model.popupClosed() }
   func handleEscape() -> Bool { model.escape() }
+  func shutdown() { model.stop() }
 }
 
 struct RemindersLabel: View {

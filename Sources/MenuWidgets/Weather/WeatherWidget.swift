@@ -16,6 +16,7 @@ final class WeatherWidget: MenuWidget {
   }
 
   func label() -> some View { WeatherLabel(service: service) }
+  func shutdown() { service.stop() }
 
   func panel(host: PanelHost) -> some View {
     state.host = host

@@ -102,6 +102,18 @@ final class RemindersModel: ObservableObject {
     requestAccessIfNeeded()
   }
 
+  /// Turned off in the config: no more fetches or store notifications.
+  func stop() {
+    ticker?.invalidate()
+    ticker = nil
+    settle?.cancel()
+    for o in observers {
+      NotificationCenter.default.removeObserver(o)
+      NSWorkspace.shared.notificationCenter.removeObserver(o)
+    }
+    observers = []
+  }
+
   private func requestAccessIfNeeded() {
     if ReminderStore.hasAccess { access = .granted; refresh(); return }
     guard ReminderStore.undecided else { access = .denied; return }

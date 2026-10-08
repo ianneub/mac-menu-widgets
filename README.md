@@ -7,6 +7,7 @@
 <p align="center">A world clock, a weather forecast, your reminders, new mail and Claude usage meters in the macOS menu bar.</p>
 
 MenuWidgets is a small native Swift app that adds five items to the menu bar.
+Any of them can be turned off (see [Configuration](#configuration)).
 Click one to open its panel; hover a row (or use ↑/↓) for a detail pane beside it.
 
 - **Time** shows the date and time (`Thu Oct 8  7:49 AM`). Its panel lists your
@@ -86,6 +87,7 @@ defaults are:
 ```json
 {
   "time": {
+    "enabled": true,
     "timeFormat": "12h",
     "showDate": true,
     "zones": [
@@ -98,6 +100,7 @@ defaults are:
     ]
   },
   "weather": {
+    "enabled": true,
     "name": "Atlanta GA",
     "latitude": 33.749,
     "longitude": -84.388,
@@ -105,8 +108,10 @@ defaults are:
     "showTodayRange": true,
     "unit": "F"
   },
-  "agents": { "refreshIntervalSec": 900 },
+  "reminders": { "enabled": true },
+  "agents": { "enabled": true, "refreshIntervalSec": 900 },
   "mail": {
+    "enabled": true,
     "hey": true,
     "heyCommand": "hey",
     "gmail": [],
@@ -117,6 +122,10 @@ defaults are:
 }
 ```
 
+- `enabled`: every widget has it. Set it to `false` to take that widget out of
+  the menu bar: it does no work and asks for nothing (no Reminders permission,
+  no Keychain read for Claude, no `hey` process). The change applies as soon as
+  the file is saved.
 - `timeFormat`: `"12h"` or `"24h"`.
 - `zones`: an IANA time zone string (`"Asia/Tokyo"`) or an object with a
   `name`, `tz` and optional `lat`/`lon` for the map and sun times.

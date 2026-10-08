@@ -15,6 +15,7 @@ final class TimeWidget: MenuWidget {
   }
 
   func label() -> some View { TimeBarLabel(state: state) }
+  func shutdown() { state.stop() }
 
   func panel(host: PanelHost) -> some View {
     state.host = host

@@ -190,3 +190,14 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   #expect(c.mail.hey && c.mail.primaryOnly && c.mail.notify)
   #expect(WidgetsConfig().mail.gmail.isEmpty)
 }
+
+@Test func widgetsCanBeTurnedOff() throws {
+  let c = try JSONDecoder().decode(WidgetsConfig.self, from: Data("""
+  {"agents": {"enabled": false}, "reminders": {"enabled": false}, "weather": {"name": "X"}}
+  """.utf8))
+  #expect(!c.agents.enabled && !c.reminders.enabled)
+  #expect(c.time.enabled && c.weather.enabled && c.mail.enabled)
+  #expect(c.agents.refreshIntervalSec == 900)
+  let all = WidgetsConfig()
+  #expect(all.time.enabled && all.weather.enabled && all.agents.enabled && all.reminders.enabled && all.mail.enabled)
+}
