@@ -46,11 +46,32 @@ import Testing
     // Halfway through a 5-hour window at 50% used: on pace.
     let half = UsageLimit(label: "Session (5-hour)", percent: 0.5, resetsAt: now.addingTimeInterval(2.5 * 3600))
     #expect(UsageFormat.paceFraction(half, now: now)! == 0.5)
-    #expect(UsageFormat.paceText(half, now: now) == "On pace")
-    let hot = UsageLimit(label: "Session (5-hour)", percent: 0.8, resetsAt: now.addingTimeInterval(2.5 * 3600))
-    #expect(UsageFormat.paceText(hot, now: now) == "30% ahead of pace")
-    let noReset = UsageLimit(label: "Session (5-hour)", percent: 0.8, resetsAt: nil)
-    #expect(UsageFormat.paceText(noReset, now: now) == nil)
+  }
+
+  @Test func projection() {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    func session(_ used: Double, resetsIn: TimeInterval) -> UsageLimit {
+      UsageLimit(label: "Session (5-hour)", percent: used, resetsAt: now.addingTimeInterval(resetsIn))
+    }
+    // The screenshot: 8% used, resets in 2h 6m of a 5h window (58% gone).
+    let easy = UsageFormat.projection(session(0.08, resetsIn: 2 * 3600 + 6 * 60), now: now)!
+    #expect(easy.level == .fine)
+    #expect(easy.text == "~14% by reset")
+    // Halfway through at 45%: ~90% by reset.
+    let tight = UsageFormat.projection(session(0.45, resetsIn: 2.5 * 3600), now: now)!
+    #expect(tight.level == .tight)
+    #expect(tight.text == "~90% by reset")
+    // Halfway through at 80% (32%/hour): the remaining 20% lasts 37 minutes.
+    let over = UsageFormat.projection(session(0.8, resetsIn: 2.5 * 3600), now: now)!
+    #expect(over.level == .over)
+    #expect(over.text == "At this rate, out in 37m")
+    #expect(UsageFormat.projection(session(1.0, resetsIn: 3600), now: now)!.text == "Limit reached")
+    // Too early in the window to call (5% gone), or no reset known.
+    #expect(UsageFormat.projection(session(0.02, resetsIn: 4.75 * 3600), now: now) == nil)
+    #expect(UsageFormat.projection(UsageLimit(label: "Session (5-hour)", percent: 0.5, resetsAt: nil), now: now) == nil)
+    // A weekly window: 7% used, 1d 5h into 7 days → ~41%.
+    let week = UsageLimit(label: "Weekly (7-day)", percent: 0.07, resetsAt: now.addingTimeInterval(5 * 86400 + 19 * 3600))
+    #expect(UsageFormat.projection(week, now: now)!.text == "~41% by reset")
   }
 
   @Test func modelRowsTopFourByTotal() {

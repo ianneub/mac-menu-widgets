@@ -183,12 +183,50 @@ public enum UsageFormat {
     return min(1, max(0, 1 - remaining / span))
   }
 
-  /// "On pace", "12% ahead of pace", "30% under pace".
-  public static func paceText(_ limit: UsageLimit, now: Date) -> String? {
-    guard let pace = paceFraction(limit, now: now) else { return nil }
-    let delta = Int(((limit.percent - pace) * 100).rounded())
-    if abs(delta) < 3 { return "On pace" }
-    return delta > 0 ? "\(delta)% ahead of pace" : "\(-delta)% under pace"
+  /// Where a limit is headed if usage keeps its average rate since the
+  /// window opened: the share used by the reset, or when it runs out first.
+  public struct Projection: Equatable, Sendable {
+    public enum Level: Equatable, Sendable {
+      /// Under 80% by the reset: room to spare.
+      case fine
+      /// 80–100% by the reset.
+      case tight
+      /// Runs out before the reset (or already has).
+      case over
+    }
+    /// Fraction used by the reset (may exceed 1).
+    public var atReset: Double
+    /// Time until the limit is reached, when that comes before the reset.
+    public var runsOutIn: TimeInterval?
+    public var level: Level
+    /// "~14% by reset", "At this rate, out in 1h 20m".
+    public var text: String {
+      if let t = runsOutIn {
+        return t <= 0 ? "Limit reached" : "At this rate, out in \(UsageFormat.duration(t))"
+      }
+      return "~\(Int((atReset * 100).rounded()))% by reset"
+    }
+  }
+
+  /// Too little of the window has gone by before this to call a rate.
+  public static let projectionMinElapsed = 0.1
+
+  /// The projection for a limit, or nil without a reset time, a known span,
+  /// or enough of the window behind it.
+  public static func projection(_ limit: UsageLimit, now: Date) -> Projection? {
+    if limit.percent >= 1 { return Projection(atReset: limit.percent, runsOutIn: 0, level: .over) }
+    guard let elapsed = paceFraction(limit, now: now), elapsed >= projectionMinElapsed,
+          let reset = limit.resetsAt
+    else { return nil }
+    let atReset = limit.percent / elapsed
+    guard atReset >= 1 else {
+      return Projection(atReset: atReset, runsOutIn: nil, level: atReset >= 0.8 ? .tight : .fine)
+    }
+    // Used `percent` over `elapsed` of the span: the rest at the same rate.
+    let ratePerSecond = limit.percent / (elapsed * limit.spanSeconds)
+    let out = (1 - limit.percent) / ratePerSecond
+    let untilReset = reset.timeIntervalSince(now)
+    return Projection(atReset: atReset, runsOutIn: min(out, untilReset), level: .over)
   }
 
   public static func dayName(_ date: String) -> String {

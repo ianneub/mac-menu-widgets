@@ -200,28 +200,35 @@ struct AgentsLimitRow: View {
           .foregroundStyle(alarming ? Color.red : Color.primary)
       }
       AgentsMeter(value: limit.percent, pace: UsageFormat.paceFraction(limit, now: now), alarming: alarming)
-      if let caption {
-        Text(caption)
-          .font(.system(size: 11))
-          .foregroundStyle(.secondary)
-      }
+      captionRow
     }
     .help(paceHelp)
   }
 
-  private var caption: String? {
-    var parts: [String] = []
-    if let reset = limit.resetsAt, reset > now {
-      parts.append("Resets in " + UsageFormat.duration(reset.timeIntervalSince(now)))
+  /// "Resets in 2h 6m" on the left, the projection ("~14% by reset") on
+  /// the right: orange when it's tight, red when it runs out first.
+  @ViewBuilder private var captionRow: some View {
+    let reset = limit.resetsAt.flatMap { $0 > now ? "Resets in " + UsageFormat.duration($0.timeIntervalSince(now)) : nil }
+    let projection = UsageFormat.projection(limit, now: now)
+    if reset != nil || projection != nil {
+      HStack(alignment: .firstTextBaseline) {
+        if let reset { Text(reset).foregroundStyle(.secondary) }
+        Spacer(minLength: 8)
+        if let p = projection {
+          Text(p.text)
+            .foregroundStyle(p.level == .over ? Color.red : p.level == .tight ? Color.orange : Color.secondary)
+        }
+      }
+      .font(.system(size: 11))
+      .lineLimit(1)
     }
-    if let pace = UsageFormat.paceText(limit, now: now) { parts.append(pace) }
-    return parts.isEmpty ? nil : parts.joined(separator: " · ")
   }
 
   private var paceHelp: String {
     guard let reset = limit.resetsAt else { return "" }
     let when = reset.formatted(date: .abbreviated, time: .shortened)
-    return "Resets \(when). The tick marks how far through the window you are."
+    return "Resets \(when). The tick marks how far through the window you are; the projection assumes "
+      + "you keep the average rate since the window opened."
   }
 }
 
