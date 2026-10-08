@@ -44,16 +44,19 @@ struct AgentsLabel: View {
 
   var body: some View {
     let headline = model.record?.bindingLimit
-    let alarming = (headline?.percent ?? 0) >= 0.9
-    let warning = (headline?.percent ?? 0) >= 0.75
+    // The worst of the limits (not just the fullest): red when one is at 90%
+    // or headed to run out before its reset, orange when one is tight.
+    let levels = (model.record?.limits ?? []).map { UsageFormat.concern($0, now: model.now) }
+    let worst: UsageFormat.Projection.Level = levels.contains(.over) ? .over : levels.contains(.tight) ? .tight : .fine
+    let tint = AgentsLimitRow.color(worst, fine: .primary)
     HStack(spacing: 4) {
       ClaudeMarkShape()
-        .fill(alarming ? Color.red : Color.primary)
+        .fill(tint)
         .frame(width: 14, height: 14)
       if let headline {
         Text("\(Int((headline.percent * 100).rounded()))%")
           .font(.system(size: 13).monospacedDigit())
-          .foregroundStyle(alarming ? Color.red : warning ? Color.orange : Color.primary)
+          .foregroundStyle(tint)
       }
     }
     .help(labelHelp)

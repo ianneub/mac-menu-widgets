@@ -56,6 +56,12 @@ final class AgentsModel: ObservableObject {
   }
 
   private func finish(_ record: UsageRecord) {
+    var record = record
+    if let demo = ProcessInfo.processInfo.environment["MENU_WIDGETS_AGENTS_DEMO"] {
+      record.limits = Self.demoLimits(now: Date())
+      // "running": nothing at the limit, so the label shows the yellow state.
+      if demo == "running" { record.limits.removeAll { $0.percent >= 0.9 } }
+    }
     self.record = record
     now = Date()
     refreshing = false
@@ -80,6 +86,27 @@ final class AgentsModel: ObservableObject {
   }
 
   func refreshNow() { run(.force) }
+
+  /// MENU_WIDGETS_AGENTS_DEMO=1 replaces the real limits with one of each
+  /// projection style, for screenshots and design checks (=running leaves
+  /// out the one at the limit).
+  static func demoLimits(now: Date) -> [UsageLimit] {
+    let h: TimeInterval = 3600, d: TimeInterval = 86400
+    func limit(_ title: String, _ used: Double, resetsIn: TimeInterval) -> UsageLimit {
+      UsageLimit(label: title, title: title, percent: used, resetsAt: now.addingTimeInterval(resetsIn))
+    }
+    return [
+      // 58% through at 9% used: ~16% by reset (grey).
+      limit("Room to spare (5-hour)", 0.09, resetsIn: 2.1 * h),
+      // Halfway through the week at 45%: ~90% by reset (orange).
+      limit("Getting tight (weekly)", 0.45, resetsIn: 3.5 * d),
+      // Halfway through at 80%: out in 37m (red).
+      limit("Running out (5-hour)", 0.80, resetsIn: 2.5 * h),
+      limit("Limit reached (5-hour)", 1.0, resetsIn: 1.2 * h),
+      // 5% into the window: no projection yet.
+      limit("Too early to tell (5-hour)", 0.02, resetsIn: 4.75 * h),
+    ]
+  }
 
   /// Turned off in the config: no more collection runs.
   func stop() {

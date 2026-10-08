@@ -208,6 +208,14 @@ public enum UsageFormat {
     }
   }
 
+  /// How worrying a limit is, worst first: at 90% or more, or projected to
+  /// run out before its reset (.over); headed for 80–100% (.tight); else
+  /// .fine. The bar, the projection text and the menu bar label share it.
+  public static func concern(_ limit: UsageLimit, now: Date) -> Projection.Level {
+    if limit.percent >= 0.9 { return .over }
+    return projection(limit, now: now)?.level ?? .fine
+  }
+
   /// Too little of the window has gone by before this to call a rate.
   public static let projectionMinElapsed = 0.1
 

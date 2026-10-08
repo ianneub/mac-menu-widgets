@@ -158,7 +158,7 @@ struct AgentsSectionHeader: View {
 struct AgentsMeter: View {
   let value: Double
   var pace: Double? = nil
-  var alarming = false
+  var color: Color = .accentColor
   var height: CGFloat = 6
 
   var body: some View {
@@ -166,7 +166,7 @@ struct AgentsMeter: View {
       ZStack(alignment: .leading) {
         Capsule().fill(Color.primary.opacity(0.12))
         Capsule()
-          .fill(alarming ? Color.red : Color.accentColor)
+          .fill(color)
           .frame(width: max(value > 0 ? height : 0, g.size.width * min(1, max(0, value))))
         if let pace {
           Rectangle()
@@ -199,10 +199,20 @@ struct AgentsLimitRow: View {
           .font(.system(size: 12, weight: .medium).monospacedDigit())
           .foregroundStyle(alarming ? Color.red : Color.primary)
       }
-      AgentsMeter(value: limit.percent, pace: UsageFormat.paceFraction(limit, now: now), alarming: alarming)
+      AgentsMeter(value: limit.percent, pace: UsageFormat.paceFraction(limit, now: now),
+                  color: Self.color(UsageFormat.concern(limit, now: now), fine: .accentColor))
       captionRow
     }
     .help(paceHelp)
+  }
+
+  /// Red when it runs out (or is nearly out), orange when tight.
+  static func color(_ level: UsageFormat.Projection.Level, fine: Color) -> Color {
+    switch level {
+    case .over: return .red
+    case .tight: return .orange
+    case .fine: return fine
+    }
   }
 
   /// "Resets in 2h 6m" on the left, the projection ("~14% by reset") on
@@ -215,8 +225,7 @@ struct AgentsLimitRow: View {
         if let reset { Text(reset).foregroundStyle(.secondary) }
         Spacer(minLength: 8)
         if let p = projection {
-          Text(p.text)
-            .foregroundStyle(p.level == .over ? Color.red : p.level == .tight ? Color.orange : Color.secondary)
+          Text(p.text).foregroundStyle(Self.color(p.level, fine: .secondary))
         }
       }
       .font(.system(size: 11))

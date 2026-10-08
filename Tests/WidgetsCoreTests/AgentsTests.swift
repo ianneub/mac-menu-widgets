@@ -74,6 +74,20 @@ import Testing
     #expect(UsageFormat.projection(week, now: now)!.text == "~41% by reset")
   }
 
+  @Test func concern() {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    func session(_ used: Double, resetsIn: TimeInterval) -> UsageLimit {
+      UsageLimit(label: "Session (5-hour)", percent: used, resetsAt: now.addingTimeInterval(resetsIn))
+    }
+    #expect(UsageFormat.concern(session(0.08, resetsIn: 2 * 3600), now: now) == .fine)
+    #expect(UsageFormat.concern(session(0.45, resetsIn: 2.5 * 3600), now: now) == .tight)
+    #expect(UsageFormat.concern(session(0.8, resetsIn: 2.5 * 3600), now: now) == .over)
+    // 90% used counts as over even when the reset is close enough to make it.
+    #expect(UsageFormat.concern(session(0.92, resetsIn: 60), now: now) == .over)
+    // Too early to project: fine unless already near the limit.
+    #expect(UsageFormat.concern(session(0.02, resetsIn: 4.75 * 3600), now: now) == .fine)
+  }
+
   @Test func modelRowsTopFourByTotal() {
     let usage: [String: TokenBucket] = [
       "claude-a-1": .init(input: 1), "claude-b-1": .init(input: 5), "claude-c-1": .init(output: 3),
