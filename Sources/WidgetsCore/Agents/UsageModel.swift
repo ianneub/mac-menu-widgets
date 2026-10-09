@@ -199,12 +199,12 @@ public enum UsageFormat {
     /// Time until the limit is reached, when that comes before the reset.
     public var runsOutIn: TimeInterval?
     public var level: Level
-    /// "~14% by reset", "At this rate, out in 1h 20m".
+    /// "14% by reset", "At this rate, out in 1h 20m".
     public var text: String {
       if let t = runsOutIn {
         return t <= 0 ? "Limit reached" : "At this rate, out in \(UsageFormat.duration(t))"
       }
-      return "~\(Int((atReset * 100).rounded()))% by reset"
+      return "\(Int((atReset * 100).rounded()))% by reset"
     }
   }
 

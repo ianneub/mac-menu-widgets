@@ -96,9 +96,9 @@ final class AgentsModel: ObservableObject {
       UsageLimit(label: title, title: title, percent: used, resetsAt: now.addingTimeInterval(resetsIn))
     }
     return [
-      // 58% through at 9% used: ~16% by reset (grey).
+      // 58% through at 9% used: 16% by reset (grey).
       limit("Room to spare (5-hour)", 0.09, resetsIn: 2.1 * h),
-      // Halfway through the week at 45%: ~90% by reset (orange).
+      // Halfway through the week at 45%: 90% by reset (orange).
       limit("Getting tight (weekly)", 0.45, resetsIn: 3.5 * d),
       // Halfway through at 80%: out in 37m (red).
       limit("Running out (5-hour)", 0.80, resetsIn: 2.5 * h),

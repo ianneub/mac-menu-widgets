@@ -215,7 +215,7 @@ struct AgentsLimitRow: View {
     }
   }
 
-  /// "Resets in 2h 6m" on the left, the projection ("~14% by reset") on
+  /// "Resets in 2h 6m" on the left, the projection ("14% by reset") on
   /// the right: orange when it's tight, red when it runs out first.
   @ViewBuilder private var captionRow: some View {
     let reset = limit.resetsAt.flatMap { $0 > now ? "Resets in " + UsageFormat.duration($0.timeIntervalSince(now)) : nil }
