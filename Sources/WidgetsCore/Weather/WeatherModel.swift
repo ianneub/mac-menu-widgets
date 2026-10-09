@@ -51,12 +51,17 @@ public enum Weather {
     /// Relative humidity in percent.
     public var humidity: Double?
     public var dewPointF: Double?
+    /// NWS hours only: the hour's dominant condition and whether it's night.
+    public var nwsIconCode: String?
+    public var nwsNight: Bool
     public var source: HourSource
     public init(date: String, hour: Int, pop: Int?, tempF: Double?, windMph: Double?, windDir: Double? = nil,
-      humidity: Double? = nil, dewPointF: Double? = nil, source: HourSource) {
+      humidity: Double? = nil, dewPointF: Double? = nil, nwsIconCode: String? = nil, nwsNight: Bool = false,
+      source: HourSource) {
       self.date = date; self.hour = hour; self.pop = pop; self.tempF = tempF
       self.windMph = windMph; self.windDir = windDir
-      self.humidity = humidity; self.dewPointF = dewPointF; self.source = source
+      self.humidity = humidity; self.dewPointF = dewPointF
+      self.nwsIconCode = nwsIconCode; self.nwsNight = nwsNight; self.source = source
     }
   }
 
@@ -251,29 +256,84 @@ public enum Weather {
     return openMeteoDay(daily, i)
   }
 
-  public static func buildTodayForecast(_ report: OpenMeteoReport?, today: String, nwsDays: [Day]) -> Day? {
+  public static func buildTodayForecast(_ report: OpenMeteoReport?, today: String, nwsDays: [Day],
+    nwsHours: [Hour] = []) -> Day? {
     let fallback = openMeteoDayOn(report, date: today)
-    if let nws = nwsDayOn(nwsDays, date: today) { return withMissingTemps(nws, from: fallback) }
-    return fallback
+    let day = nwsDayOn(nwsDays, date: today).map { withMissingTemps($0, from: fallback) } ?? fallback
+    return day.map { withHourlyOutlook($0, nws: nwsHours, openMeteo: openMeteoHourly(report)) }
   }
 
   /// The rendered strip: today first, then future days. `limit` is the
   /// total row count, so 10 means today plus nine. NWS covers seven days;
   /// a longer strip continues on Open-Meteo.
-  public static func buildForecastRows(_ report: OpenMeteoReport?, today: String, limit: Int, nwsDays: [Day]) -> [Day] {
+  public static func buildForecastRows(_ report: OpenMeteoReport?, today: String, limit: Int, nwsDays: [Day],
+    nwsHours: [Hour] = []) -> [Day] {
     let total = forecastDayLimit(limit)
     var rows: [Day] = []
     if let t = buildTodayForecast(report, today: today, nwsDays: nwsDays) { rows.append(t) }
     var remaining = total - rows.count
-    if remaining <= 0 { return rows }
+    if remaining > 0 {
+      let nws = nwsFutureDays(nwsDays, today: today, limit: remaining)
+      for d in nws { rows.append(withMissingTemps(d, from: openMeteoDayOn(report, date: d.date))) }
+      remaining -= nws.count
+      if remaining > 0 {
+        rows += openMeteoForecastDays(report, today: nws.last?.date ?? today, limit: remaining)
+      }
+    }
+    let omHours = openMeteoHourly(report)
+    return rows.map { withHourlyOutlook($0, nws: nwsHours, openMeteo: omHours) }
+  }
 
-    let nws = nwsFutureDays(nwsDays, today: today, limit: remaining)
-    for d in nws { rows.append(withMissingTemps(d, from: openMeteoDayOn(report, date: d.date))) }
-    remaining -= nws.count
-    if remaining <= 0 { return rows }
+  /// A row's chance of rain and icon from the hours its detail chart draws.
+  public static func withHourlyOutlook(_ day: Day, nws: [Hour], openMeteo: [Hour]) -> Day {
+    withHourlyIcon(withHourlyPrecipChance(day, nws: nws, openMeteo: openMeteo), nws: nws)
+  }
 
-    let after = nws.last?.date ?? today
-    return rows + openMeteoForecastDays(report, today: after, limit: remaining)
+  /// A row's chance of rain from the same hours its detail chart draws (the
+  /// wettest one), so the two agree. NWS's own figure covers the day and
+  /// the night after it, through 6 am the next morning, so rain due before
+  /// dawn would otherwise count on the wrong day. A day the hours don't
+  /// fully cover keeps its daily figure; 23 hours is enough for the
+  /// spring-forward day.
+  public static func withHourlyPrecipChance(_ day: Day, nws: [Hour], openMeteo: [Hour]) -> Day {
+    let pops = hourlyForDay(day.date, nws: nws, openMeteo: openMeteo).compactMap { $0?.pop }
+    guard pops.count >= 23, let peak = pops.max() else { return day }
+    var out = day
+    out.precipChance = Double(peak)
+    return out
+  }
+
+  /// An NWS row's icon from its date's hourly icons, for the same reason as
+  /// its chance: the period's icon includes the night after it. Rain, snow
+  /// or storms in any hour win, as they set the chance; the commonest of
+  /// them shows, so one stormy hour doesn't outvote a day of showers.
+  /// Otherwise the commonest sky over the daytime hours (the night's when
+  /// none are left), so a cloudy night doesn't cloud a sunny day. Ties go
+  /// to the higher rank. Night only when every hour left is. Needs the
+  /// hours through 11 pm; the hourly forecast's last, partial day keeps
+  /// the period's icon.
+  public static func withHourlyIcon(_ day: Day, nws: [Hour]) -> Day {
+    guard !(day.nwsIconCode ?? "").isEmpty else { return day }
+    let hours = nws.filter { $0.date == day.date && !($0.nwsIconCode ?? "").isEmpty }
+    guard hours.contains(where: { $0.hour == 23 }) else { return day }
+    let wet = hours.compactMap(\.nwsIconCode).filter { (nwsIconRank[$0] ?? -1) >= nwsWetRank }
+    let daytime = hours.filter { !$0.nwsNight }
+    let sky = (daytime.isEmpty ? hours : daytime).compactMap(\.nwsIconCode)
+    // Fog or haze only when that's all there is, as in a period's icon.
+    let clear = sky.filter { (nwsIconRank[$0] ?? -1) > 0 }
+    var out = day
+    out.nwsIconCode = commonestNwsCode(wet.isEmpty ? (clear.isEmpty ? sky : clear) : wet)
+    out.nwsNight = daytime.isEmpty
+    return out
+  }
+
+  /// The code most hours share, the higher-ranked on a tie.
+  static func commonestNwsCode(_ codes: [String]) -> String {
+    var counts: [String: Int] = [:]
+    for c in codes { counts[c, default: 0] += 1 }
+    return counts.max { a, b in
+      a.value != b.value ? a.value < b.value : (nwsIconRank[a.key] ?? -1) < (nwsIconRank[b.key] ?? -1)
+    }?.key ?? ""
   }
 
   // MARK: - NWS
@@ -339,14 +399,21 @@ public enum Weather {
     "tornado": 9, "hurricane": 9, "tropical_storm": 9,
   ]
 
+  /// Ranks from here up are precipitation or worse, not sky cover.
+  static let nwsWetRank = 5
+
   /// The dominant condition code in an NWS icon URL, "" when there is none.
   public static func nwsIconCode(_ iconURL: String) -> String {
     guard let r = iconURL.range(of: #"/(day|night)/[^?]+"#, options: .regularExpression) else { return "" }
     let path = iconURL[r].split(separator: "/", omittingEmptySubsequences: true).dropFirst()
+    return dominantNwsCode(path.map { String($0.split(separator: ",", omittingEmptySubsequences: false).first ?? "") })
+  }
+
+  /// The highest-ranked code (the first on a tie), "" when there are none.
+  static func dominantNwsCode(_ codes: [String]) -> String {
     var best = ""
     var bestRank = -1
-    for seg in path {
-      let code = String(seg.split(separator: ",", omittingEmptySubsequences: false).first ?? "")
+    for code in codes {
       let rank = nwsIconRank[code] ?? -1
       if rank > bestRank { best = code; bestRank = rank }
     }
@@ -483,6 +550,7 @@ public enum Weather {
     guard let periods = periods(data) else { return nil }
     return periods.compactMap { p in
       guard let (date, hour) = stampParts(p["startTime"] as? String ?? "") else { return nil }
+      let icon = nwsIconCode(p["icon"] as? String ?? "")
       return Hour(
         date: date, hour: hour,
         pop: jsRound(nwsValue(p["probabilityOfPrecipitation"]) ?? 0),
@@ -491,6 +559,8 @@ public enum Weather {
         windDir: compassDegrees(p["windDirection"] as? String ?? ""),
         humidity: nwsValue(p["relativeHumidity"]),
         dewPointF: nwsDewPointF(p["dewpoint"]),
+        nwsIconCode: icon.isEmpty ? nil : icon,
+        nwsNight: !(p["isDaytime"] as? Bool ?? true),
         source: .nws)
     }
   }

@@ -35,6 +35,7 @@ private func slot(pop: Int? = nil, temp: Double? = nil, wind: Double? = nil, h: 
       nwsHour("2026-10-05T00:00:00-04:00", NSNull(), 70, "5 to 10 mph", "NE").merging([
         "relativeHumidity": ["unitCode": "wmoUnit:percent", "value": 82],
         "dewpoint": ["unitCode": "wmoUnit:degC", "value": 15],
+        "icon": "https://api.weather.gov/icons/land/night/ovc?size=small", "isDaytime": false,
       ]) { $1 },
     ]]])))
     #expect(rows.count == 2)
@@ -46,6 +47,8 @@ private func slot(pop: Int? = nil, temp: Double? = nil, wind: Double? = nil, h: 
     #expect(rows[1].windDir == 45)
     #expect(rows[1].humidity == 82)
     #expect(abs(rows[1].dewPointF! - 59) < 1e-9)
+    #expect(rows[1].nwsIconCode == "ovc")
+    #expect(rows[1].nwsNight)
     #expect(W.nwsHourly(Data("<html>500</html>".utf8)) == nil)
     #expect(W.nwsHourly(json(["properties": ["periods": []]])) == nil)
   }
@@ -262,6 +265,81 @@ private func slot(pop: Int? = nil, temp: Double? = nil, wind: Double? = nil, h: 
     #expect(W.dayIcon(rows[1]) == "cloud.rain.fill")
     #expect(W.dayIcon(rows[3]) == "cloud.bolt.rain.fill")
     #expect(W.buildForecastRows(om, today: "2026-10-04", limit: 1, nwsDays: []).count == 1)
+  }
+
+  @Test func rowChanceComesFromItsHours() throws {
+    let om = try #require(W.OpenMeteoReport.parse(json(["daily": [
+      "time": ["2026-10-04", "2026-10-05", "2026-10-06"],
+      "precipitation_probability_max": [6, 96, 40],
+    ]])))
+    // Tonight's 80% is rain due before dawn tomorrow.
+    var tonight = W.Day(date: "2026-10-04"); tonight.precipChance = 80
+    var monday = W.Day(date: "2026-10-05"); monday.precipChance = 97
+    let omHours = (0..<24).map { hour("2026-10-04", $0, $0 == 17 ? 2 : 0, .openMeteo) }
+      + (0..<24).map { hour("2026-10-05", $0, $0 == 5 ? 96 : 50, .openMeteo) }
+    let nwsHours = (18..<24).map { hour("2026-10-04", $0, $0 - 16, .nws) }
+      + (0..<12).map { hour("2026-10-05", $0, $0 == 5 ? 80 : 30, .nws) }
+
+    let today = W.withHourlyPrecipChance(tonight, nws: nwsHours, openMeteo: omHours)
+    #expect(today.precipChance == 7)
+    #expect(W.precipChanceLabel(today) == "")
+    #expect(W.withHourlyPrecipChance(monday, nws: nwsHours, openMeteo: omHours).precipChance == 80)
+    // Hours that don't cover the day leave the daily figure alone.
+    #expect(W.withHourlyPrecipChance(tonight, nws: nwsHours, openMeteo: []).precipChance == 80)
+    var dry = W.Day(date: "2026-10-04"); dry.precipChance = 30
+    #expect(W.withHourlyPrecipChance(dry, nws: [], openMeteo: (0..<24).map { hour("2026-10-04", $0, 0, .openMeteo) })
+      .precipChance == 0)
+
+    // Built rows use the report's hours too; a day past them keeps its daily max.
+    let omWithHours = try #require(W.OpenMeteoReport.parse(json([
+      "daily": ["time": ["2026-10-04", "2026-10-05", "2026-10-06"], "precipitation_probability_max": [6, 96, 40]],
+      "hourly": ["time": omHours.map { "\($0.date)T\(String(format: "%02d", $0.hour)):00" },
+                 "precipitation_probability": omHours.map { $0.pop! }],
+    ])))
+    let rows = W.buildForecastRows(omWithHours, today: "2026-10-04", limit: 3, nwsDays: [tonight, monday], nwsHours: nwsHours)
+    #expect(rows.map(\.precipChance) == [7, 80, 40])
+    #expect(W.buildTodayForecast(omWithHours, today: "2026-10-04", nwsDays: [tonight], nwsHours: nwsHours)?.precipChance == 7)
+    #expect(W.buildForecastRows(om, today: "2026-10-04", limit: 3, nwsDays: [tonight, monday]).map(\.precipChance) == [80, 97, 40])
+  }
+
+  @Test func rowIconComesFromItsHours() {
+    func nwsIcon(_ date: String, _ h: Int, _ code: String, night: Bool) -> W.Hour {
+      W.Hour(date: date, hour: h, pop: 0, tempF: 60, windMph: 3, nwsIconCode: code, nwsNight: night, source: .nws)
+    }
+    // Tonight's period icon is storms, but they arrive after midnight.
+    var tonight = W.Day(date: "2026-10-04"); tonight.nwsIconCode = "tsra"; tonight.nwsNight = true
+    let hours = (19..<24).map { nwsIcon("2026-10-04", $0, "ovc", night: true) }
+      + (0..<6).map { nwsIcon("2026-10-05", $0, $0 < 4 ? "ovc" : "tsra", night: true) }
+    let today = W.withHourlyIcon(tonight, nws: hours)
+    #expect(today.nwsIconCode == "ovc")
+    #expect(today.nwsNight)
+    #expect(W.dayIcon(today) == "cloud.fill")
+
+    // A daytime hour left makes it a day icon; rain in any hour beats sky cover.
+    var monday = W.Day(date: "2026-10-05"); monday.nwsIconCode = "skc"
+    func day(_ code: (Int) -> String) -> [W.Hour] {
+      (0..<24).map { nwsIcon("2026-10-05", $0, code($0), night: $0 < 6 || $0 >= 18) }
+    }
+    let full = day { $0 == 2 ? "rain_showers" : "few" }
+    let wet = W.withHourlyIcon(monday, nws: full)
+    #expect(wet.nwsIconCode == "rain_showers")
+    #expect(!wet.nwsNight)
+
+    // The commonest wet hour wins: a stormy hour doesn't outvote the showers.
+    #expect(W.withHourlyIcon(monday, nws: day { $0 < 2 ? "tsra" : $0 < 20 ? "rain_showers" : "sct" }).nwsIconCode
+      == "rain_showers")
+    // Sky is the daytime majority, so a cloudy night doesn't cloud the day.
+    #expect(W.withHourlyIcon(monday, nws: day { $0 < 9 ? "sct" : "few" }).nwsIconCode == "few")
+    #expect(W.withHourlyIcon(monday, nws: day { $0 < 9 || $0 >= 18 ? "few" : "sct" }).nwsIconCode == "sct")
+    // A tie goes to the cloudier sky; fog shows only when it's all there is.
+    #expect(W.withHourlyIcon(monday, nws: day { $0 < 12 ? "skc" : "bkn" }).nwsIconCode == "bkn")
+    #expect(W.withHourlyIcon(monday, nws: day { $0 < 16 ? "fog" : "skc" }).nwsIconCode == "skc")
+    #expect(W.withHourlyIcon(monday, nws: day { _ in "fog" }).nwsIconCode == "fog")
+
+    // Hours that stop before 11 pm, and Open-Meteo rows, keep their icon.
+    #expect(W.withHourlyIcon(monday, nws: hours).nwsIconCode == "skc")
+    var om = W.Day(date: "2026-10-05"); om.openMeteoWeatherCode = 0
+    #expect(W.withHourlyIcon(om, nws: full).nwsIconCode == nil)
   }
 
   @Test func iconCodePicksDominantCondition() {

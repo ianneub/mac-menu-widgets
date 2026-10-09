@@ -147,10 +147,11 @@ final class WeatherService: ObservableObject {
 
   var current: Weather.Current? { Weather.openMeteoCurrent(activeOpenMeteo) }
   var rows: [Weather.Day] {
-    Weather.buildForecastRows(activeOpenMeteo, today: today, limit: settings.forecastDays, nwsDays: activeNwsDays)
+    Weather.buildForecastRows(activeOpenMeteo, today: today, limit: settings.forecastDays, nwsDays: activeNwsDays,
+      nwsHours: activeNwsHours)
   }
   var todayForecast: Weather.Day? {
-    Weather.buildTodayForecast(activeOpenMeteo, today: today, nwsDays: activeNwsDays)
+    Weather.buildTodayForecast(activeOpenMeteo, today: today, nwsDays: activeNwsDays, nwsHours: activeNwsHours)
   }
   var openMeteoHours: [Weather.Hour] { Weather.openMeteoHourly(activeOpenMeteo) }
 
