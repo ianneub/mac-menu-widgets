@@ -48,10 +48,15 @@ public enum Weather {
     public var tempF: Double?
     public var windMph: Double?
     public var windDir: Double?
+    /// Relative humidity in percent.
+    public var humidity: Double?
+    public var dewPointF: Double?
     public var source: HourSource
-    public init(date: String, hour: Int, pop: Int?, tempF: Double?, windMph: Double?, windDir: Double? = nil, source: HourSource) {
+    public init(date: String, hour: Int, pop: Int?, tempF: Double?, windMph: Double?, windDir: Double? = nil,
+      humidity: Double? = nil, dewPointF: Double? = nil, source: HourSource) {
       self.date = date; self.hour = hour; self.pop = pop; self.tempF = tempF
-      self.windMph = windMph; self.windDir = windDir; self.source = source
+      self.windMph = windMph; self.windDir = windDir
+      self.humidity = humidity; self.dewPointF = dewPointF; self.source = source
     }
   }
 
@@ -122,6 +127,8 @@ public enum Weather {
       public var precipitation_probability: [Double?]?
       public var wind_speed_10m: [Double?]?
       public var wind_direction_10m: [Double?]?
+      public var relative_humidity_2m: [Double?]?
+      public var dew_point_2m: [Double?]?
     }
     public struct CurrentBlock: Codable, Sendable, Equatable {
       public var temperature_2m: Double?
@@ -146,7 +153,7 @@ public enum Weather {
       .init(name: "latitude", value: String(point.latitude)),
       .init(name: "longitude", value: String(point.longitude)),
       .init(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max,wind_gusts_10m_max"),
-      .init(name: "hourly", value: "temperature_2m,precipitation_probability,wind_speed_10m,wind_direction_10m"),
+      .init(name: "hourly", value: "temperature_2m,precipitation_probability,wind_speed_10m,wind_direction_10m,relative_humidity_2m,dew_point_2m"),
       .init(name: "current", value: "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"),
       .init(name: "forecast_days", value: String(min(16, forecastDayLimit(forecastDays) + 1))),
       .init(name: "timezone", value: "auto"),
@@ -463,6 +470,13 @@ public enum Weather {
     return (String(stamp.prefix(10)), hour)
   }
 
+  /// NWS's dewpoint QuantitativeValue (sent in °C) as °F.
+  static func nwsDewPointF(_ field: Any?) -> Double? {
+    guard let n = nwsValue(field) else { return nil }
+    let unit = ((field as? [String: Any])?["unitCode"] as? String) ?? ""
+    return unit.hasSuffix("degF") ? n : celsiusToFahrenheit(n)
+  }
+
   /// NWS forecast/hourly → hour rows, nil on anything unusable. A null
   /// chance is how NWS writes "none".
   public static func nwsHourly(_ data: Data) -> [Hour]? {
@@ -475,6 +489,8 @@ public enum Weather {
         tempF: nwsTemperatureF(p),
         windMph: nwsWindMph(p["windSpeed"] as? String ?? ""),
         windDir: compassDegrees(p["windDirection"] as? String ?? ""),
+        humidity: nwsValue(p["relativeHumidity"]),
+        dewPointF: nwsDewPointF(p["dewpoint"]),
         source: .nws)
     }
   }
@@ -489,6 +505,8 @@ public enum Weather {
         tempF: at(h.temperature_2m, i).map(celsiusToFahrenheit),
         windMph: at(h.wind_speed_10m, i).map { $0 * 0.621371 },
         windDir: at(h.wind_direction_10m, i),
+        humidity: at(h.relative_humidity_2m, i),
+        dewPointF: at(h.dew_point_2m, i).map(celsiusToFahrenheit),
         source: .openMeteo)
     }
   }
@@ -612,6 +630,30 @@ public enum Weather {
       label += ", gusts \(jsRound(gust * scale))"
     }
     return label
+  }
+
+  /// The hours, 10 am through 3 pm, when humidity is most felt outdoors.
+  public static let muggyHours = 10...15
+
+  static func muggySlots(_ slots: [Hour?]) -> [Hour] {
+    slots.compactMap { $0 }.filter { muggyHours.contains($0.hour) }
+  }
+
+  /// Relative humidity at the hottest hour from 10 am to 3 pm (the earliest
+  /// on a tie). Humidity falls as the air warms, so this is what the warm
+  /// part of the day feels like, not the damp morning.
+  public static func humidityLabel(_ slots: [Hour?]) -> String {
+    var hottest: Hour?
+    for s in muggySlots(slots) where s.humidity != nil {
+      guard let t = s.tempF else { continue }
+      if hottest == nil || t > hottest!.tempF! { hottest = s }
+    }
+    return hottest?.humidity.map { "\(jsRound($0))%" } ?? ""
+  }
+
+  /// The highest dew point from 10 am to 3 pm.
+  public static func dewPointLabel(_ slots: [Hour?], imperial: Bool) -> String {
+    muggySlots(slots).compactMap(\.dewPointF).max().map { "\(jsRound(imperial ? $0 : fahrenheitToCelsius($0)))°" } ?? ""
   }
 
   public static func uvLabel(_ extras: DayExtras?) -> String {

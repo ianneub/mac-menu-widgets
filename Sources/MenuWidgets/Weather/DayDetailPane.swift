@@ -3,7 +3,8 @@ import WidgetsCore
 
 /// The card beside the forecast while a day row is hovered: the day's hourly
 /// chance of precipitation as bars, hourly temperature and wind lines, rain
-/// total, wind, UV and sun times, then NWS's own day and night narrative.
+/// total, wind, UV, humidity, dew point and sun times, then NWS's own day and
+/// night narrative.
 struct DayDetailPane: View {
   @ObservedObject var service: WeatherService
   @ObservedObject var state: WeatherPanelState
@@ -195,28 +196,41 @@ struct DayDetailPane: View {
     .frame(width: Self.contentW, height: 16)
   }
 
+  /// Three columns, a row per theme (moisture, wind and sun, sun times), so
+  /// sunrise and sunset stay side by side. Stats with no value drop out.
   private func stats(_ slots: [Weather.Hour?], extras: Weather.DayExtras?, imperial: Bool) -> some View {
-    let items = [
-      ("PRECIPITATION", Weather.precipAmountLabel(extras, imperial: imperial)),
-      ("WIND", Weather.windLabel(slots, extras: extras, imperial: imperial)),
-      ("UV INDEX", Weather.uvLabel(extras)),
-      ("SUNRISE", extras?.sunrise ?? ""),
-      ("SUNSET", extras?.sunset ?? ""),
-    ].filter { !$0.1.isEmpty }
+    let rows = [
+      [
+        ("PRECIPITATION", Weather.precipAmountLabel(extras, imperial: imperial)),
+        ("HUMIDITY", Weather.humidityLabel(slots)),
+        ("DEW POINT", Weather.dewPointLabel(slots, imperial: imperial)),
+      ],
+      [
+        ("WIND", Weather.windLabel(slots, extras: extras, imperial: imperial)),
+        ("UV INDEX", Weather.uvLabel(extras)),
+      ],
+      [
+        ("SUNRISE", extras?.sunrise ?? ""),
+        ("SUNSET", extras?.sunset ?? ""),
+      ],
+    ].map { $0.filter { !$0.1.isEmpty } }.filter { !$0.isEmpty }
     let cellW = (Self.contentW - 24) / 3
-    return LazyVGrid(columns: Array(repeating: GridItem(.fixed(cellW), spacing: 12, alignment: .topLeading), count: 3),
-      alignment: .leading, spacing: 10) {
-      ForEach(items, id: \.0) { label, value in
-        VStack(alignment: .leading, spacing: 3) {
-          Text(label)
-            .font(.system(size: WeatherStyle.caption))
-            .tracking(1)
-            .foregroundStyle(.secondary)
-          Text(value)
-            .font(.system(size: WeatherStyle.body))
-            .fixedSize(horizontal: false, vertical: true)
+    return VStack(alignment: .leading, spacing: 10) {
+      ForEach(rows.indices, id: \.self) { r in
+        HStack(alignment: .top, spacing: 12) {
+          ForEach(rows[r], id: \.0) { label, value in
+            VStack(alignment: .leading, spacing: 3) {
+              Text(label)
+                .font(.system(size: WeatherStyle.caption))
+                .tracking(1)
+                .foregroundStyle(.secondary)
+              Text(value)
+                .font(.system(size: WeatherStyle.body))
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(width: cellW, alignment: .leading)
+          }
         }
-        .frame(width: cellW, alignment: .leading)
       }
     }
   }

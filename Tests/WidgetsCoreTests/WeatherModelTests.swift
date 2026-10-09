@@ -32,7 +32,10 @@ private func slot(pop: Int? = nil, temp: Double? = nil, wind: Double? = nil, h: 
   @Test func nwsHourlyReadsLocalStampNullChanceIsZero() throws {
     let rows = try #require(W.nwsHourly(json(["properties": ["periods": [
       nwsHour("2026-10-04T23:00:00-04:00", 61, 73, "0 mph"),
-      nwsHour("2026-10-05T00:00:00-04:00", NSNull(), 70, "5 to 10 mph", "NE"),
+      nwsHour("2026-10-05T00:00:00-04:00", NSNull(), 70, "5 to 10 mph", "NE").merging([
+        "relativeHumidity": ["unitCode": "wmoUnit:percent", "value": 82],
+        "dewpoint": ["unitCode": "wmoUnit:degC", "value": 15],
+      ]) { $1 },
     ]]])))
     #expect(rows.count == 2)
     #expect(rows[0] == W.Hour(date: "2026-10-04", hour: 23, pop: 61, tempF: 73, windMph: 0, windDir: nil, source: .nws))
@@ -41,6 +44,8 @@ private func slot(pop: Int? = nil, temp: Double? = nil, wind: Double? = nil, h: 
     #expect(rows[1].pop == 0)
     #expect(rows[1].windMph == 10)
     #expect(rows[1].windDir == 45)
+    #expect(rows[1].humidity == 82)
+    #expect(abs(rows[1].dewPointF! - 59) < 1e-9)
     #expect(W.nwsHourly(Data("<html>500</html>".utf8)) == nil)
     #expect(W.nwsHourly(json(["properties": ["periods": []]])) == nil)
   }
@@ -52,6 +57,8 @@ private func slot(pop: Int? = nil, temp: Double? = nil, wind: Double? = nil, h: 
       "precipitation_probability": [40, NSNull()],
       "wind_speed_10m": [10, 0],
       "wind_direction_10m": [200, NSNull()],
+      "relative_humidity_2m": [64, NSNull()],
+      "dew_point_2m": [10, NSNull()],
     ]])))
     let rows = W.openMeteoHourly(report)
     #expect(rows[0].tempF == 68)
@@ -60,6 +67,9 @@ private func slot(pop: Int? = nil, temp: Double? = nil, wind: Double? = nil, h: 
     #expect(rows[1].pop == nil)
     #expect(rows[0].windDir == 200)
     #expect(rows[1].windDir == nil)
+    #expect(rows[0].humidity == 64)
+    #expect(rows[0].dewPointF == 50)
+    #expect(rows[1].dewPointF == nil)
     #expect(W.openMeteoHourly(nil).isEmpty)
   }
 
@@ -159,6 +169,24 @@ private func slot(pop: Int? = nil, temp: Double? = nil, wind: Double? = nil, h: 
     #expect(W.windLabel([slot(wind: 12), nil, slot(wind: 7)], extras: today, imperial: true) == "12 mph, gusts 17")
     #expect(W.windLabel([], extras: today, imperial: true) == "8 mph, gusts 17")
     #expect(W.windLabel([], extras: nil, imperial: true) == "")
+  }
+
+  @Test func humidityAtHottestHourDewPointPeakFrom10To3() {
+    func muggy(_ h: Int, _ temp: Double?, _ rh: Double?, _ dew: Double?) -> W.Hour {
+      W.Hour(date: "2026-10-04", hour: h, pop: 0, tempF: temp, windMph: 0, humidity: rh, dewPointF: dew, source: .nws)
+    }
+    var slots = [W.Hour?](repeating: nil, count: 24)
+    slots[6] = muggy(6, 70, 98, 72)    // dawn is outside the window
+    slots[10] = muggy(10, 78, 71, 66)
+    slots[13] = muggy(13, 86, 55, 68.6)
+    slots[14] = muggy(14, 86, 52, 67)  // ties the hottest; the earlier hour wins
+    slots[15] = muggy(15, 90, nil, nil) // hottest, but no humidity
+    slots[16] = muggy(16, 95, 90, 75)  // and the evening is outside too
+    #expect(W.humidityLabel(slots) == "55%")
+    #expect(W.dewPointLabel(slots, imperial: true) == "69°")
+    #expect(W.dewPointLabel(slots, imperial: false) == "20°")
+    #expect(W.humidityLabel([slots[6], slots[16]]) == "")
+    #expect(W.dewPointLabel([], imperial: true) == "")
   }
 
   @Test func nwsForecastDaysKeepNarratives() throws {

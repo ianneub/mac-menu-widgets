@@ -15,7 +15,9 @@ Click one to open its panel; hover a row (or use ↑/↓) for a detail pane besi
   and twilight times for each zone.
 - **Weather** shows the current temperature where your Mac is (or for a city
   you pick). Its panel has a multi-day
-  forecast with the chance of rain per day and hourly rain bars. US locations
+  forecast with the chance of rain per day; hover a day for its hourly rain,
+  temperature and wind. Its humidity is at the hottest hour from 10 am to
+  3 pm, and its dew point is the highest in those hours. US locations
   use the National Weather Service forecast (what weather.gov shows); elsewhere,
   and as a fallback, it uses [Open-Meteo](https://open-meteo.com).
 - **Reminders** shows a bell with how many Apple Reminders are left today
