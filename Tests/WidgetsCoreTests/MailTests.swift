@@ -204,3 +204,21 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   let all = WidgetsConfig()
   #expect(all.time.enabled && all.weather.enabled && all.agents.enabled && all.reminders.enabled && all.mail.enabled)
 }
+
+// MARK: - processes
+
+@Test func processExitIsSignaledOffTheMainThread() async {
+  let status: Int32? = await withCheckedContinuation { cont in
+    DispatchQueue.global().async {
+      let p = Process()
+      p.executableURL = URL(fileURLWithPath: "/bin/sh")
+      p.arguments = ["-c", "exit 3"]
+      guard let exited = try? p.runSignalingExit(), exited.wait(timeout: .now() + 10) == .success else {
+        cont.resume(returning: nil)
+        return
+      }
+      cont.resume(returning: p.terminationStatus)
+    }
+  }
+  #expect(status == 3)
+}

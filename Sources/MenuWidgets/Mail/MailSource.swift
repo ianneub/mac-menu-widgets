@@ -101,12 +101,12 @@ enum Command {
     let out = Pipe(), err = Pipe()
     p.standardOutput = out
     p.standardError = err
-    try p.run()
+    let exited = try p.runSignalingExit()
     return await withCheckedContinuation { cont in
       DispatchQueue.global().async {
         let o = out.fileHandleForReading.readDataToEndOfFile()
         let e = err.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
+        exited.wait()
         cont.resume(returning: Output(status: p.terminationStatus, stdout: o, stderr: e))
       }
     }

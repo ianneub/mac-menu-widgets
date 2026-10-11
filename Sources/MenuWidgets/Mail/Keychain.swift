@@ -40,13 +40,14 @@ enum Keychain {
     p.standardError = FileHandle.nullDevice
     let input = Pipe()
     p.standardInput = stdin == nil ? FileHandle.nullDevice : input
-    do { try p.run() } catch { return (-1, Data()) }
+    let exited: DispatchSemaphore
+    do { exited = try p.runSignalingExit() } catch { return (-1, Data()) }
     if let stdin {
       input.fileHandleForWriting.write(stdin)
       try? input.fileHandleForWriting.close()
     }
     let data = out.fileHandleForReading.readDataToEndOfFile()
-    p.waitUntilExit()
+    exited.wait()
     return (p.terminationStatus, data)
   }
 }

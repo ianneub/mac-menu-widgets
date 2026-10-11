@@ -61,9 +61,10 @@ public enum ClaudeCredentials {
     let out = Pipe()
     p.standardOutput = out
     p.standardError = FileHandle.nullDevice
-    do { try p.run() } catch { return nil }
+    let exited: DispatchSemaphore
+    do { exited = try p.runSignalingExit() } catch { return nil }
     let data = out.fileHandleForReading.readDataToEndOfFile()
-    p.waitUntilExit()
+    exited.wait()
     guard p.terminationStatus == 0 else { return nil }
     return ClaudeLogin.parse(data)
   }
