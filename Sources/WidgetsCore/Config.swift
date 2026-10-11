@@ -9,6 +9,8 @@ public struct WidgetsConfig: Codable, Sendable {
   public var agents: AgentsSettings = .init()
   public var reminders: RemindersSettings = .init()
   public var mail: MailSettings = .init()
+  /// Global keyboard shortcuts that run a command (not a widget: no menu-bar item).
+  public var hotkeys: [Hotkey] = []
 
   public init() {}
 
@@ -102,6 +104,20 @@ public struct WidgetsConfig: Codable, Sendable {
     public init() {}
   }
 
+  public struct Hotkey: Codable, Sendable, Equatable {
+    /// "cmd+shift+e"; see KeyCombo.parse for the names.
+    public var key: String
+    /// The program and its arguments, run without a shell. A bare program
+    /// name is looked up on PATH, which is short under launchd.
+    public var command: [String]
+    /// Bundle ids of the apps the shortcut works in ("com.mitchellh.ghostty").
+    /// Empty: everywhere. In other apps the key is left alone.
+    public var apps: [String] = []
+    public init(key: String, command: [String], apps: [String] = []) {
+      self.key = key; self.command = command; self.apps = apps
+    }
+  }
+
   public static var directory: URL {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/menu-widgets")
   }
@@ -140,6 +156,24 @@ extension WidgetsConfig {
     agents = (try? c.decode(AgentsSettings.self, forKey: .agents)) ?? .init()
     reminders = (try? c.decode(RemindersSettings.self, forKey: .reminders)) ?? .init()
     mail = (try? c.decode(MailSettings.self, forKey: .mail)) ?? .init()
+    // One bad entry is dropped rather than losing every shortcut.
+    hotkeys = ((try? c.decode([Lenient<Hotkey>].self, forKey: .hotkeys)) ?? []).compactMap(\.value)
+  }
+}
+
+/// Decodes to nil instead of throwing, so one bad array element doesn't
+/// fail the whole array.
+private struct Lenient<T: Decodable>: Decodable {
+  let value: T?
+  init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+}
+
+extension WidgetsConfig.Hotkey {
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    key = try c.decode(String.self, forKey: .key)
+    command = try c.decode([String].self, forKey: .command)
+    apps = (try? c.decode([String].self, forKey: .apps)) ?? []
   }
 }
 

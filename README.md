@@ -134,7 +134,8 @@ defaults are:
     "pollIntervalSec": 30,
     "notify": true,
     "sound": "default"
-  }
+  },
+  "hotkeys": []
 }
 ```
 
@@ -168,6 +169,18 @@ defaults are:
   by name from `/System/Library/Sounds` or `~/Library/Sounds` (`"Bottle"`,
   `"Tink"`, `"Pop"`). To hear it, start the app once with
   `MENU_WIDGETS_MAIL_TEST=1`, which posts a sample banner after a few seconds.
+- `hotkeys`: global keyboard shortcuts that run a command; there's no menu-bar
+  item for them. Each is `{"key": "cmd+shift+e", "command": ["/path/to/script",
+  "arg"], "apps": ["com.mitchellh.ghostty"]}`. `key` takes `cmd`, `shift`,
+  `alt`/`opt` and `ctrl` plus one key (a letter, digit, punctuation, `f1`–`f20`,
+  an arrow, `space`, `return`, `tab`, `escape`); every key needs a modifier
+  except the function keys. `command` runs without a shell, from your home
+  folder, with output discarded; a bare name is looked up on launchd's short
+  PATH, so give scripts a full path. `apps` limits the shortcut to those apps
+  (by bundle id: `osascript -e 'id of app "Ghostty"'`) and leaves the key alone
+  everywhere else; leave it out for everywhere. No permission is needed. macOS
+  refuses shortcuts made only of Option or Option+Shift, and one another app
+  already holds; both are logged.
 
 ### Gmail setup
 

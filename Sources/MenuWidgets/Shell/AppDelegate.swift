@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var widgets: [String: StatusPanel] = [:]
   private var configSub: AnyCancellable?
   private var termSource: DispatchSourceSignal?
+  private var hotkeys: HotkeyCenter?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     // Status items are added right to left, so the last one created sits
@@ -21,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       .map(WidgetRegistry.enabledIDs)
       .removeDuplicates()
       .sink { [weak self] ids in self?.sync(enabled: Set(ids), config: config) }
+    hotkeys = HotkeyCenter(config: config)
 
     // launchd stops the app with SIGTERM, which skips the normal quit path:
     // route it through terminate so widgets stop their child processes
@@ -62,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationWillTerminate(_ notification: Notification) {
     widgets.values.forEach { $0.remove() }
+    hotkeys?.shutdown()
   }
 
   private func sync(enabled: Set<String>, config: ConfigStore) {
