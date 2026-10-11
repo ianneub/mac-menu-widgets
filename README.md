@@ -10,9 +10,16 @@ MenuWidgets is a small native Swift app that adds five items to the menu bar.
 Any of them can be turned off (see [Configuration](#configuration)).
 Click one to open its panel; hover a row (or use ↑/↓) for a detail pane beside it.
 
-- **Time** shows the date and time (`Thu Oct 8  7:49 AM`). Its panel lists your
-  world clocks with offsets, sunrise and sunset, and the moon phase, with a map
-  and twilight times for each zone.
+- **Time** shows the date and time (`Thu Oct 8  7:49 AM`). Its panel opens on
+  this month's calendar with today picked. Under each date is a dot in the
+  color of every calendar with something that day (iCloud, and any other
+  account in System Settings → Internet Accounts). Click a date for its events:
+  all-day ones first, then the rest by start time. Click an event to open it
+  in Calendar. The arrows at the top
+  right page a month back or forward, and the dot between them returns to
+  today. Below that are your world clocks with offsets, sunrise and sunset,
+  and the moon phase, with a map and twilight times for each zone. The first
+  time the panel opens, macOS asks whether MenuWidgets may use your calendars.
 - **Weather** shows the current temperature where your Mac is (or for a city
   you pick). Its panel has a multi-day
   forecast with the chance of rain per day (its wettest hour, midnight to
@@ -62,8 +69,9 @@ it with a LaunchAgent (`com.ianneub.menu-widgets`), so it comes back at login.
 The log is at `~/Library/Logs/MenuWidgets.log`.
 
 The app is ad-hoc signed. If macOS asks, allow it to access your reminders
-(for the Reminders widget) and the Keychain item (for the Claude widget).
-macOS ties the Reminders permission to the app's signature, so an ad-hoc build
+(for the Reminders widget), your calendars (for the Time widget's month
+calendar) and the Keychain item (for the Claude widget).
+macOS ties the Reminders and Calendars permissions to the app's signature, so an ad-hoc build
 asks again after each rebuild. To keep it, sign with a stable identity (a
 self-signed code-signing certificate from Keychain Access works): put its name
 in `~/.config/menu-widgets/sign-identity` or `MENU_WIDGETS_SIGN_IDENTITY`.
@@ -94,6 +102,8 @@ defaults are:
     "enabled": true,
     "timeFormat": "12h",
     "showDate": true,
+    "calendar": true,
+    "hiddenCalendars": [],
     "zones": [
       { "name": "London", "tz": "Europe/London" },
       { "name": "UTC", "tz": "UTC" },
@@ -133,6 +143,10 @@ defaults are:
   no Keychain read for Claude, no `hey` process). The change applies as soon as
   the file is saved.
 - `timeFormat`: `"12h"` or `"24h"`.
+- `time.calendar`: the month calendar and the day's events at the top of the
+  time panel. `false` hides them, and MenuWidgets never asks for calendar access.
+- `time.hiddenCalendars`: calendars to leave out of the dots and the event list,
+  by name (`["Birthdays", "US Holidays"]`).
 - `zones`: an IANA time zone string (`"Asia/Tokyo"`) or an object with a
   `name`, `tz` and optional `lat`/`lon` for the map and sun times.
 - `unit`: `"F"` or `"C"`.

@@ -31,6 +31,13 @@ public struct WidgetsConfig: Codable, Sendable {
     /// Date before the time in the menu bar ("Thu Oct 8  7:49 AM"); a
     /// Mac-only addition, since the macOS clock can't show the date alone.
     public var showDate: Bool = true
+    /// The month calendar and the picked day's events at the top of the
+    /// popup, from the Mac's calendars (iCloud and any other accounts in
+    /// Internet Accounts). False hides it and never asks for calendar access.
+    public var calendar: Bool = true
+    /// Calendars to leave out of the dots and the day list, by name
+    /// ("Birthdays", "US Holidays").
+    public var hiddenCalendars: [String] = []
     public var zones: [Zone] = [
       .init(name: "London", tz: "Europe/London"),
       .init(name: "UTC", tz: "UTC"),
@@ -165,6 +172,8 @@ extension WidgetsConfig.TimeSettings {
     enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? d.enabled
     timeFormat = (try? c.decode(String.self, forKey: .timeFormat)) ?? d.timeFormat
     showDate = (try? c.decode(Bool.self, forKey: .showDate)) ?? d.showDate
+    calendar = (try? c.decode(Bool.self, forKey: .calendar)) ?? d.calendar
+    hiddenCalendars = (try? c.decode([String].self, forKey: .hiddenCalendars)) ?? d.hiddenCalendars
     zones = (try? c.decode([WidgetsConfig.Zone].self, forKey: .zones)) ?? d.zones
   }
 }

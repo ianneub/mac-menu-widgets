@@ -43,11 +43,16 @@ final class TimeState: ObservableObject {
   let config: ConfigStore
   weak var host: PanelHost?
   let zoneCoords = TimeModel.systemZoneCoords()
+  /// The month calendar at the top of the popup (`time.calendar`).
+  let calendar = TimeCalendarModel()
 
   init(config: ConfigStore) {
     self.config = config
     config.objectWillChange.sink { [weak self] _ in
       DispatchQueue.main.async { self?.objectWillChange.send() }
+    }.store(in: &bag)
+    config.$config.map(\.time.hiddenCalendars).removeDuplicates().sink { [calendar] in
+      calendar.hidden = $0
     }.store(in: &bag)
     let nc = NotificationCenter.default
     nc.publisher(for: .NSSystemTimeZoneDidChange).sink { [weak self] _ in
@@ -66,6 +71,7 @@ final class TimeState: ObservableObject {
     tick = nil
     bag.removeAll()
     hideWork?.cancel()
+    calendar.stop()
   }
 
   /// Re-reads the clock and re-arms the minute timer (timers drift over sleep).
@@ -89,6 +95,7 @@ final class TimeState: ObservableObject {
   // MARK: Derived
 
   var use24h: Bool { config.config.time.timeFormat == "24h" }
+  var showsCalendar: Bool { config.config.time.calendar }
   var zones: [WidgetsConfig.Zone] { TimeModel.normalizeZones(config.config.time.zones) }
   var nowMs: Double { now.timeIntervalSince1970 * 1000 }
   var local: TimeModel.ZoneOffset { TimeModel.zoneOffset(.current, at: now) }
@@ -184,9 +191,11 @@ final class TimeState: ObservableObject {
   func popupWillOpen() {
     refresh()
     openCount += 1
+    if showsCalendar { calendar.popupWillOpen() }
   }
 
   func popupDidClose() {
+    calendar.popupDidClose()
     hideWork?.cancel()
     hoverTarget = TimeState.none
     shownIndex = TimeState.none

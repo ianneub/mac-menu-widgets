@@ -17,3 +17,13 @@ import Testing
   #expect(z.map(\.name) == ["Tokyo", "New York", "Home"])
   #expect(z[2].lat == 1)
 }
+
+@Test func calendarSettingsDecode() throws {
+  let d = try JSONDecoder().decode(WidgetsConfig.self, from: Data(#"{"time": {"showDate": false}}"#.utf8)).time
+  #expect(d.calendar)
+  #expect(d.hiddenCalendars.isEmpty)
+  let json = #"{"time": {"calendar": false, "hiddenCalendars": ["Birthdays"]}}"#
+  let t = try JSONDecoder().decode(WidgetsConfig.self, from: Data(json.utf8)).time
+  #expect(!t.calendar)
+  #expect(t.hiddenCalendars == ["Birthdays"])
+}

@@ -18,7 +18,7 @@ swift scripts/make-icon.swift Assets/AppIcon.png   # redraw the app icon
 
 Use `scripts/test.sh`, not plain `swift test`: with only the Command Line Tools installed, Swift Testing's macro plugin must be loaded explicitly. Tests use Swift Testing (`@Test`, `#expect`), not XCTest.
 
-The installed app runs as LaunchAgent `com.ianneub.menu-widgets`; its log is `~/Library/Logs/MenuWidgets.log`. Rebuilding with an ad-hoc signature makes macOS ask for Reminders permission again (a stable identity can be set in `~/.config/menu-widgets/sign-identity` or `MENU_WIDGETS_SIGN_IDENTITY`).
+The installed app runs as LaunchAgent `com.ianneub.menu-widgets`; its log is `~/Library/Logs/MenuWidgets.log`. Rebuilding with an ad-hoc signature makes macOS ask for Reminders and Calendars permission again (a stable identity can be set in `~/.config/menu-widgets/sign-identity` or `MENU_WIDGETS_SIGN_IDENTITY`).
 
 ### Development env vars
 
@@ -26,6 +26,7 @@ Set when launching the binary to check UI without clicking:
 - `MENU_WIDGETS_OPEN=<widget id>` opens that widget's popup at launch.
 - `MENU_WIDGETS_TIME_DETAIL=<n>`, `MENU_WIDGETS_WEATHER_DETAIL=<n>`, `MENU_WIDGETS_REMINDERS_EDIT=<row>[,<preset>]` open a popup with a specific side pane/form.
 - `MENU_WIDGETS_TIME_SNAPSHOT=<dir>`, `MENU_WIDGETS_SNAPSHOT=<dir>` (agents) render panels to PNGs.
+- `MENU_WIDGETS_CALENDAR_DEMO=1` fills the time popup's month calendar with made-up events instead of reading EventKit.
 - `MENU_WIDGETS_AGENTS_DEMO=1` (or `=running`) swaps in fake Claude limits, one per style.
 - `MENU_WIDGETS_NO_KEYCHAIN=1` skips reading Claude Code's Keychain credentials.
 - `MENU_WIDGETS_MAIL_TEST=1` posts a sample new-mail banner.
@@ -50,6 +51,7 @@ Both use Swift 5 language mode under the Swift 6 toolchain. Source folders mirro
 ### Notable data sources
 - **Agents**: reads Claude Code's OAuth token read-only from the Keychain item `Claude Code-credentials` (never refreshes it) to probe usage limits, and `TranscriptScanner` incrementally scans `~/.claude/projects/**/*.jsonl` (honors `CLAUDE_CONFIG_DIR`) with a persisted per-file offset cache.
 - **Mail**: `MailSource` subclasses (`HeySource` runs the `hey` CLI's `watch` as a child process; `GmailSource` polls the Gmail API using OAuth refresh tokens in the Keychain). `MailModel` diffs successive reads to post or withdraw notification banners. The app runs under launchd with a short PATH, so `hey` is also looked up in mise/Homebrew/`~/.local/bin` paths.
+- **Time**: the month calendar reads events through EventKit (`TimeCalendarModel`), asking for access the first time the popup opens.
 - **Reminders**: EventKit, plus the private ReminderKit framework (`ReminderStore.swift`) only for the URL field.
 - **Weather**: NWS for US locations, Open-Meteo elsewhere and as the fallback; Core Location for the Mac's location when `weather.useLocation` is on.
 

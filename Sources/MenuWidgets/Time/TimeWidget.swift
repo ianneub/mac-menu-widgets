@@ -52,6 +52,7 @@ final class TimeWidget: MenuWidget {
         try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name)-\(scheme == .light ? "light" : "dark").png"))
       }
     }
+    if state.showsCalendar { state.calendar.popupWillOpen() }
     state.shownIndex = 1
     render(TimePanel(state: state, host: host), "panel")
     for (i, n) in [(-1, "here"), (0, "london"), (1, "utc"), (5, "anchorage")] {

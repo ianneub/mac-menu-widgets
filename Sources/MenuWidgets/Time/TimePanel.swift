@@ -1,7 +1,7 @@
 import SwiftUI
 import WidgetsCore
 
-/// The world clock popup: hero local time, the moon, then one row per zone
+/// The world clock popup: the month calendar, hero local time, the moon, then one row per zone
 /// with its offset from here and its own wall clock.
 struct TimePanel: View {
   @ObservedObject var state: TimeState
@@ -23,6 +23,15 @@ struct TimePanel: View {
     let moonPercent = moon.name == "Full Moon" ? 100 : Int(floor(moon.illumination * 100))
 
     VStack(alignment: .leading, spacing: 10) {
+      // ---- This month, and the picked day's events.
+      if state.showsCalendar {
+        TimeCalendarView(model: state.calendar, now: now, use24h: use24h) { event in
+          state.calendar.open(event)
+          host.close()
+        }
+        Divider()
+      }
+
       // ---- Hero: local time. Hovering it opens the pane for here.
       VStack(spacing: 2) {
         HStack(alignment: .lastTextBaseline, spacing: 14) {
