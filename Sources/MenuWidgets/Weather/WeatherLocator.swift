@@ -3,6 +3,15 @@ import Foundation
 import MapKit
 import WidgetsCore
 
+/// The Mac's location as the weather widget last applied it, for other
+/// widgets to share (the time pane's sun and moon times). Nil while the
+/// weather isn't following the Mac's location, or doesn't know it yet.
+@MainActor
+final class SharedLocation: ObservableObject {
+  static let shared = SharedLocation()
+  @Published var place: LocatedPlace?
+}
+
 /// The Mac's location for the weather widget: one Core Location fix at a
 /// time (city-level accuracy is plenty), named by reverse geocoding. A fix
 /// within WeatherLocation.minimumMove of the last place is ignored. The

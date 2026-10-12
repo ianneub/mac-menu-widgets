@@ -46,7 +46,9 @@ final class WeatherService: ObservableObject {
     // launch doesn't fetch the config's point first.
     let loc = c.useLocation ? WeatherLocator() : nil
     locator = loc
-    settings = WeatherLocation.effective(c, located: loc?.access == .denied ? nil : loc?.place)
+    let located = loc?.access == .denied ? nil : loc?.place
+    settings = WeatherLocation.effective(c, located: located)
+    SharedLocation.shared.place = located
     loadCache()
     if let loc { wire(loc) }
     config.$config
@@ -122,6 +124,7 @@ final class WeatherService: ObservableObject {
   private func apply() {
     let place = locator?.access == .denied ? nil : locator?.place
     let s = WeatherLocation.effective(configSettings, located: place)
+    if SharedLocation.shared.place != place { SharedLocation.shared.place = place }
     let refetch = s.latitude != settings.latitude || s.longitude != settings.longitude
       || s.forecastDays != settings.forecastDays
     settings = s
@@ -159,6 +162,7 @@ final class WeatherService: ObservableObject {
   func stop() {
     locator?.stop()
     locator = nil
+    SharedLocation.shared.place = nil
     refreshTask?.cancel()
     timers.forEach { $0.invalidate() }
     timers = []

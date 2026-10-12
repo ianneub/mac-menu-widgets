@@ -22,8 +22,9 @@ run commands from global keyboard shortcuts, optionally only in certain apps
   forward, and the dot between them returns to today. Below that are the
   local time, the moon phase and your world clocks with their offsets. Hover
   the local time or a zone for a day/night map, sun and moon rise and set,
-  day length, twilight and the blue and golden hours; hover the moon for its
-  coming phases. The
+  day length, twilight and the blue and golden hours (the local time's are
+  for wherever the Weather widget is showing); hover the moon for its coming
+  phases. The
   first time the panel opens, macOS asks whether MenuWidgets may use your
   calendars.
 - **Weather** shows the current conditions and temperature where your Mac is

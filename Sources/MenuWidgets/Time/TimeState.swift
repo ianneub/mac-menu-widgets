@@ -48,7 +48,7 @@ final class TimeState: ObservableObject {
 
   init(config: ConfigStore) {
     self.config = config
-    config.objectWillChange.sink { [weak self] _ in
+    config.objectWillChange.merge(with: SharedLocation.shared.objectWillChange).sink { [weak self] _ in
       DispatchQueue.main.async { self?.objectWillChange.send() }
     }.store(in: &bag)
     config.$config.map(\.time.hiddenCalendars).removeDuplicates().sink { [calendar] in
@@ -130,7 +130,9 @@ final class TimeState: ObservableObject {
 
   func place(_ index: Int) -> TimePlace? {
     if index == TimeState.here {
-      let w = config.config.weather
+      // Where the weather is: the Mac's location while the weather widget
+      // follows it, else the config's place.
+      let w = WeatherLocation.effective(config.config.weather, located: SharedLocation.shared.place)
       let l = local
       return TimePlace(
         name: w.name.isEmpty ? "Current Location" : w.name, offset: l.offset, abbr: l.abbr,
