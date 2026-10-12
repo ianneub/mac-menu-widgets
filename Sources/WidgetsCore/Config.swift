@@ -40,6 +40,10 @@ public struct WidgetsConfig: Codable, Sendable {
     /// Calendars to leave out of the dots and the day list, by name
     /// ("Birthdays", "US Holidays").
     public var hiddenCalendars: [String] = []
+    /// The local time's detail pane (map, sun and moon times) follows the
+    /// Mac's location; off, or until it's known, it uses the weather's
+    /// `name`, `latitude` and `longitude`.
+    public var useLocation: Bool = true
     public var zones: [Zone] = [
       .init(name: "London", tz: "Europe/London"),
       .init(name: "UTC", tz: "UTC"),
@@ -208,6 +212,7 @@ extension WidgetsConfig.TimeSettings {
     showDate = (try? c.decode(Bool.self, forKey: .showDate)) ?? d.showDate
     calendar = (try? c.decode(Bool.self, forKey: .calendar)) ?? d.calendar
     hiddenCalendars = (try? c.decode([String].self, forKey: .hiddenCalendars)) ?? d.hiddenCalendars
+    useLocation = (try? c.decode(Bool.self, forKey: .useLocation)) ?? d.useLocation
     zones = (try? c.decode([WidgetsConfig.Zone].self, forKey: .zones)) ?? d.zones
   }
 }

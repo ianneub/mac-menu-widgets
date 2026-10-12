@@ -27,3 +27,11 @@ import Testing
   #expect(!t.calendar)
   #expect(t.hiddenCalendars == ["Birthdays"])
 }
+
+@Test func timeUseLocationDefaultsOn() throws {
+  let c = try JSONDecoder().decode(WidgetsConfig.self, from: Data(#"{"time": {"showDate": false}}"#.utf8))
+  #expect(c.time.useLocation)
+  let off = try JSONDecoder().decode(WidgetsConfig.self, from: Data(#"{"time": {"useLocation": false}}"#.utf8))
+  #expect(!off.time.useLocation)
+  #expect(off.weather.useLocation)
+}

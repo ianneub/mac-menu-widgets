@@ -3,13 +3,48 @@ import Foundation
 import MapKit
 import WidgetsCore
 
-/// The Mac's location as the weather widget last applied it, for other
-/// widgets to share (the time pane's sun and moon times). Nil while the
-/// weather isn't following the Mac's location, or doesn't know it yet.
+/// The Mac's location, shared by the widgets that follow it (the weather,
+/// and the time pane's local row through `time.useLocation`). One locator
+/// runs while any of them wants it, and stops when none does.
 @MainActor
 final class SharedLocation: ObservableObject {
   static let shared = SharedLocation()
-  @Published var place: LocatedPlace?
+
+  /// The last known place; nil while nothing follows the location, macOS
+  /// denies it, or no fix has come in yet.
+  @Published private(set) var place: LocatedPlace?
+  /// Whether macOS lets the app use the location (unknown while nothing
+  /// follows it).
+  @Published private(set) var access: WeatherLocator.Access = .unknown
+  private var locator: WeatherLocator?
+  private var followers: Set<String> = []
+
+  /// Starts or stops following the location for `follower` ("weather",
+  /// "time"). Nothing is asked of macOS until someone calls `update()`.
+  func follow(_ follower: String, _ on: Bool) {
+    if on { followers.insert(follower) } else { followers.remove(follower) }
+    if !followers.isEmpty, locator == nil {
+      let loc = WeatherLocator()
+      locator = loc
+      loc.onPlace = { [weak self] _ in self?.publish() }
+      loc.onAccess = { [weak self] _ in self?.publish() }
+      publish()
+    } else if followers.isEmpty, let loc = locator {
+      loc.stop()
+      locator = nil
+      publish()
+    }
+  }
+
+  /// Asks for a fix, and the first time for permission.
+  func update() { locator?.update() }
+
+  private func publish() {
+    let a = locator?.access ?? .unknown
+    let p = a == .denied ? nil : locator?.place
+    if access != a { access = a }
+    if place != p { place = p }
+  }
 }
 
 /// The Mac's location for the weather widget: one Core Location fix at a

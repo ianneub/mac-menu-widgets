@@ -18,7 +18,9 @@ final class WeatherService: ObservableObject {
   /// Whether macOS lets the widget use the Mac's location.
   @Published private(set) var locationAccess: WeatherLocator.Access = .unknown
   private var configSettings: WidgetsConfig.WeatherSettings
-  private var locator: WeatherLocator?
+  /// The Mac's location as last published by SharedLocation.
+  private var located: LocatedPlace?
+  private var location: SharedLocation { .shared }
   /// Ticks every minute (today's chart dims past hours; "today" rolls over).
   @Published private(set) var now = Date()
   @Published private(set) var lastSuccess: Date?
@@ -44,13 +46,18 @@ final class WeatherService: ObservableObject {
     configSettings = c
     // The last known place (kept by the locator) is used from the start, so
     // launch doesn't fetch the config's point first.
-    let loc = c.useLocation ? WeatherLocator() : nil
-    locator = loc
-    let located = loc?.access == .denied ? nil : loc?.place
+    SharedLocation.shared.follow("weather", c.useLocation)
+    located = SharedLocation.shared.place
+    locationAccess = SharedLocation.shared.access
     settings = WeatherLocation.effective(c, located: located)
-    SharedLocation.shared.place = located
     loadCache()
-    if let loc { wire(loc) }
+    // @Published sends the new value before the property changes, so the
+    // values come from the stream, not from reading SharedLocation back.
+    location.$place.dropFirst().sink { [weak self] p in
+      self?.located = p
+      self?.apply()
+    }.store(in: &cancellables)
+    location.$access.dropFirst().sink { [weak self] a in self?.locationAccess = a }.store(in: &cancellables)
     config.$config
       .map(\.weather)
       .removeDuplicates { a, b in
@@ -60,15 +67,16 @@ final class WeatherService: ObservableObject {
       .dropFirst()
       .sink { [weak self] s in
         guard let self else { return }
+        let wasFollowing = self.configSettings.useLocation
         self.configSettings = s
-        self.syncLocator()
+        if s.useLocation != wasFollowing { self.syncLocator() }
         self.apply()
       }
       .store(in: &cancellables)
 
     timers.append(Timer.scheduledTimer(withTimeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated {
-        self?.locator?.update()
+        self?.updateLocation()
         self?.refresh()
       }
     })
@@ -86,45 +94,30 @@ final class WeatherService: ObservableObject {
       MainActor.assumeIsolated {
         self?.now = Date()
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-          self?.locator?.update()
+          self?.updateLocation()
           self?.refresh()
         }
       }
     }
     refresh()
-    locator?.update()
+    updateLocation()
   }
 
   // MARK: location
 
-  private func wire(_ loc: WeatherLocator) {
-    locationAccess = loc.access
-    loc.onPlace = { [weak self] _ in self?.apply() }
-    loc.onAccess = { [weak self] a in
-      self?.locationAccess = a
-      self?.apply()
-    }
+  private func updateLocation() {
+    if configSettings.useLocation { location.update() }
   }
 
   /// Starts or stops following the Mac's location as the config says.
   private func syncLocator() {
-    if configSettings.useLocation, locator == nil {
-      let loc = WeatherLocator()
-      locator = loc
-      wire(loc)
-      loc.update()
-    } else if !configSettings.useLocation, let loc = locator {
-      loc.stop()
-      locator = nil
-      locationAccess = .unknown
-    }
+    location.follow("weather", configSettings.useLocation)
+    updateLocation()
   }
 
   /// Recomputes the settings; a new point (or forecast length) refetches.
   private func apply() {
-    let place = locator?.access == .denied ? nil : locator?.place
-    let s = WeatherLocation.effective(configSettings, located: place)
-    if SharedLocation.shared.place != place { SharedLocation.shared.place = place }
+    let s = WeatherLocation.effective(configSettings, located: located)
     let refetch = s.latitude != settings.latitude || s.longitude != settings.longitude
       || s.forecastDays != settings.forecastDays
     settings = s
@@ -133,7 +126,7 @@ final class WeatherService: ObservableObject {
 
   /// Whether the shown place is the Mac's location.
   var followingLocation: Bool {
-    configSettings.useLocation && locationAccess != .denied && locator?.place != nil
+    configSettings.useLocation && located != nil
   }
 
   var point: Weather.Point? {
@@ -160,9 +153,7 @@ final class WeatherService: ObservableObject {
 
   /// Turned off in the config: no more fetches.
   func stop() {
-    locator?.stop()
-    locator = nil
-    SharedLocation.shared.place = nil
+    location.follow("weather", false)
     refreshTask?.cancel()
     timers.forEach { $0.invalidate() }
     timers = []

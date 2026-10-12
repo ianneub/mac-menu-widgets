@@ -54,6 +54,11 @@ final class TimeState: ObservableObject {
     config.$config.map(\.time.hiddenCalendars).removeDuplicates().sink { [calendar] in
       calendar.hidden = $0
     }.store(in: &bag)
+    config.$config.map(\.time.useLocation).removeDuplicates().sink { [weak self] on in
+      SharedLocation.shared.follow("time", on)
+      // Turned on while the popup is open: look now, not at the next open.
+      if on, self?.host?.controller?.isOpen == true { self?.updateLocation() }
+    }.store(in: &bag)
     let nc = NotificationCenter.default
     nc.publisher(for: .NSSystemTimeZoneDidChange).sink { [weak self] _ in
       NSTimeZone.resetSystemTimeZone()
@@ -67,6 +72,7 @@ final class TimeState: ObservableObject {
 
   /// Turned off in the config: no more ticks or notifications.
   func stop() {
+    SharedLocation.shared.follow("time", false)
     tick?.invalidate()
     tick = nil
     bag.removeAll()
@@ -130,9 +136,10 @@ final class TimeState: ObservableObject {
 
   func place(_ index: Int) -> TimePlace? {
     if index == TimeState.here {
-      // Where the weather is: the Mac's location while the weather widget
-      // follows it, else the config's place.
-      let w = WeatherLocation.effective(config.config.weather, located: SharedLocation.shared.place)
+      // The Mac's location under `time.useLocation`, else the weather's place.
+      var fallback = config.config.weather
+      fallback.useLocation = config.config.time.useLocation
+      let w = WeatherLocation.effective(fallback, located: SharedLocation.shared.place)
       let l = local
       return TimePlace(
         name: w.name.isEmpty ? "Current Location" : w.name, offset: l.offset, abbr: l.abbr,
@@ -194,6 +201,18 @@ final class TimeState: ObservableObject {
     refresh()
     openCount += 1
     if showsCalendar { calendar.popupWillOpen() }
+    updateLocation()
+  }
+
+  private var lastLocate: Date?
+
+  /// A fresh fix for the local row (the first time, macOS asks for
+  /// permission), at most every 15 minutes, like the weather's.
+  private func updateLocation() {
+    guard config.config.time.useLocation else { return }
+    if let t = lastLocate, Date().timeIntervalSince(t) < 15 * 60 { return }
+    lastLocate = Date()
+    SharedLocation.shared.update()
   }
 
   func popupDidClose() {

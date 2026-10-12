@@ -23,10 +23,9 @@ run commands from global keyboard shortcuts, optionally only in certain apps
   local time, the moon phase and your world clocks with their offsets. Hover
   the local time or a zone for a day/night map, sun and moon rise and set,
   day length, twilight and the blue and golden hours (the local time's are
-  for wherever the Weather widget is showing); hover the moon for its coming
-  phases. The
-  first time the panel opens, macOS asks whether MenuWidgets may use your
-  calendars.
+  for where your Mac is); hover the moon for its coming phases. The first
+  time the panel opens, macOS asks whether MenuWidgets may use your calendars
+  and your location.
 - **Weather** shows the current conditions and temperature where your Mac is
   (or for a city you pick; click the place name in the panel to search). Its
   panel has the current feels-like, wind and humidity, and a multi-day
@@ -94,9 +93,9 @@ force quit relaunches it. To stop it until the next login, run
 
 The app is ad-hoc signed. If macOS asks, allow it to access your reminders
 (for the Reminders widget), your calendars (for the Time widget's month
-calendar), your location (for the Weather widget) and notifications (for new
-mail banners). Keychain items are read through `/usr/bin/security`, so they
-don't prompt.
+calendar), your location (for the weather and the Time panel's sun and moon
+times) and notifications (for new mail banners). Keychain items are read
+through `/usr/bin/security`, so they don't prompt.
 macOS ties the Reminders and Calendars permissions to the app's signature, so an ad-hoc build
 asks again after each rebuild. To keep it, sign with a stable identity (a
 self-signed code-signing certificate from Keychain Access works): put its name
@@ -141,6 +140,7 @@ app keeps its current settings (or, at launch, the defaults). The defaults are:
     "showDate": true,
     "calendar": true,
     "hiddenCalendars": [],
+    "useLocation": true,
     "zones": [
       { "name": "London", "tz": "Europe/London" },
       { "name": "UTC", "tz": "UTC" },
@@ -186,6 +186,11 @@ app keeps its current settings (or, at launch, the defaults). The defaults are:
   time panel. `false` hides them, and MenuWidgets never asks for calendar access.
 - `time.hiddenCalendars`: calendars to leave out of the dots and the event list,
   by name, ignoring case (`["Birthdays", "US Holidays"]`).
+- `time.useLocation`: the local time's map and sun and moon times follow the
+  Mac's location, like `weather.useLocation` (the two share one Location
+  Services permission, asked for by whichever widget needs it first). While
+  it's off, denied or not yet known, they're for the weather's `name`,
+  `latitude` and `longitude`.
 - `zones`: an IANA time zone string (`"Asia/Tokyo"`) or an object with a
   `tz` and optional `name` and `lat`/`lon`; if any object has no `tz`, the
   default zones are used. The map and sun times use the zone's main city from

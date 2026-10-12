@@ -55,7 +55,7 @@ Both use Swift 5 language mode under the Swift 6 toolchain. Source folders mirro
 - **Mail**: `MailSource` subclasses (`HeySource` runs the `hey` CLI's `watch` as a child process; `GmailSource` polls the Gmail API with the `gmail.metadata` scope, keeping refresh tokens in the Keychain under `com.ianneub.menu-widgets.gmail-token`). Keychain access goes through `/usr/bin/security`, not SecItem, so rebuilt or re-signed apps don't prompt. `MailModel` diffs successive reads to post or withdraw notification banners. The app runs under launchd with a short PATH, so `hey` is also looked up in mise/Homebrew/`~/.local/bin` paths.
 - **Time**: the month calendar reads events through EventKit (`TimeCalendarModel`), asking for access the first time the popup opens.
 - **Reminders**: EventKit, plus the private ReminderKit framework (`ReminderStore.swift`) only for the URL field.
-- **Weather**: Open-Meteo always (current conditions, and days past NWS's seven), plus NWS for US forecasts; Core Location for the Mac's location when `weather.useLocation` is on. `WeatherService` publishes the located place through `SharedLocation`, which the time pane's local row uses; nothing else asks Core Location.
+- **Weather**: Open-Meteo always (current conditions, and days past NWS's seven), plus NWS for US forecasts; Core Location for the Mac's location when `weather.useLocation` is on. Location goes through `SharedLocation` (`WeatherLocator.swift`), which runs one locator while any widget follows it (`weather.useLocation`, and `time.useLocation` for the time pane's local row) and stops it when none does.
 
 ## Conventions
 
