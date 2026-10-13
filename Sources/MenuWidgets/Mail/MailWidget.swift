@@ -40,6 +40,5 @@ struct MailLabel: View {
           .foregroundStyle(Color.orange)
       }
     }
-    .help(model.tooltip)
   }
 }

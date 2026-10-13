@@ -122,17 +122,6 @@ final class MailModel: ObservableObject {
     return sources.filter { $0.unread > 0 }.map { "\($0.name) \($0.unread)" }.joined(separator: " · ")
   }
 
-  var tooltip: String {
-    let parts = sources.map { s -> String in
-      switch s.status {
-      case .needsSetup, .needsSignIn: return "\(s.name): sign in"
-      case .error where s.items == nil: return "\(s.name): error"
-      default: return "\(s.name) \(s.unread)"
-      }
-    }
-    return parts.isEmpty ? "Mail" : parts.joined(separator: " · ")
-  }
-
   /// Every row in panel order, for the keyboard cursor.
   var rows: [MailItem] { sources.flatMap { visible($0) } }
 

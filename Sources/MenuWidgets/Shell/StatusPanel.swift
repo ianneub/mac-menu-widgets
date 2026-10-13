@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Owns one status item and its popup: a borderless panel under the item
@@ -15,6 +16,7 @@ final class StatusPanel: NSObject {
   private var sidePaneHosting: NSHostingView<AnyView>?
   private var sidePaneAnchorY: CGFloat = 0
   private var hideWork: DispatchWorkItem?
+  private var labelImage: LabelImage?
   private var outsideClickMonitor: Any?
   private var keyMonitor: Any?
   private let willOpen: () -> Void
@@ -42,20 +44,9 @@ final class StatusPanel: NSObject {
     super.init()
     host.controller = self
 
-    // Label: SwiftUI inside the status button; the item's length follows
-    // the label's measured width. The menu bar already spaces items apart, so
-    // only a point a side, which keeps the open highlight off the text.
+    // Label: SwiftUI drawn into the status button's image (see LabelImage).
     if let button = statusItem.button {
-      let label = LabelContainer(content: AnyView(widget.label())) { [weak self] width in
-        self?.statusItem.length = ceil(width) + 2
-      }
-      let labelHosting = NSHostingView(rootView: label)
-      labelHosting.translatesAutoresizingMaskIntoConstraints = false
-      button.addSubview(labelHosting)
-      NSLayoutConstraint.activate([
-        labelHosting.centerXAnchor.constraint(equalTo: button.centerXAnchor),
-        labelHosting.centerYAnchor.constraint(equalTo: button.centerYAnchor),
-      ])
+      labelImage = LabelImage(content: AnyView(widget.label()), item: statusItem, button: button)
       if #available(macOS 27, *) {
         // The menu bar opens and closes the popup (see the delegate below).
         statusItem.expandedInterfaceDelegate = self
@@ -319,17 +310,6 @@ private struct PopupChrome: View {
   }
 }
 
-private struct LabelContainer: View {
-  let content: AnyView
-  let onWidth: (CGFloat) -> Void
-
-  var body: some View {
-    content
-      .fixedSize()
-      .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { onWidth($0) }
-  }
-}
-
 /// macOS 27: the menu bar opens the popup by beginning a session (a click on
 /// the icon or the padding around it, or menu bar keyboard navigation) and
 /// may end it. The app ends it through close(): Esc, a link opened from the
@@ -342,5 +322,86 @@ extension StatusPanel: NSStatusItemExpandedInterfaceDelegate {
 
   nonisolated func statusItemDidEndExpandedInterfaceSession(_ statusItem: NSStatusItem, animated: Bool) {
     MainActor.assumeIsolated { hide() }
+  }
+}
+
+/// Draws the label into the status button's image. On a screen other than
+/// the active one the menu bar dims each button's own image and title, as
+/// it does the system's icons, but not views added to the button, so a live
+/// SwiftUI label stayed bright there. The image is redrawn whenever the
+/// label's state changes, at 1x and 2x, in the menu bar's appearance (a
+/// colored label can't be a template image, which would adapt by itself).
+/// The item's length follows the image's width. The menu bar already spaces
+/// items apart, so only a point a side, which keeps the open highlight off
+/// the text.
+@MainActor
+private final class LabelImage {
+  private weak var item: NSStatusItem?
+  private let appearance = LabelAppearance()
+  private let renderers: [ImageRenderer<AnyView>]
+  private var changes: [AnyCancellable] = []
+  private var appearanceObservation: NSKeyValueObservation?
+  private var renderPending = false
+
+  init(content: AnyView, item: NSStatusItem, button: NSStatusBarButton) {
+    self.item = item
+    button.imagePosition = .imageOnly
+    button.imageScaling = .scaleNone
+    let root = AnyView(LabelImageContent(content: content, appearance: appearance))
+    renderers = [1, 2].map { scale in
+      let renderer = ImageRenderer(content: root)
+      renderer.scale = scale
+      return renderer
+    }
+    for renderer in renderers {
+      changes.append(renderer.objectWillChange.sink { [weak self] in self?.setNeedsRender() })
+    }
+    appearanceObservation = button.observe(\.effectiveAppearance, options: [.initial]) { [weak self] button, _ in
+      MainActor.assumeIsolated {
+        let dark = button.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        self?.appearance.colorScheme = dark ? .dark : .light
+      }
+    }
+    render()
+  }
+
+  /// objectWillChange fires before the state changes, and both renderers
+  /// fire it: render once, on the next pass of the run loop.
+  private func setNeedsRender() {
+    guard !renderPending else { return }
+    renderPending = true
+    DispatchQueue.main.async { [weak self] in self?.render() }
+  }
+
+  private func render() {
+    renderPending = false
+    guard let item, let button = item.button else { return }
+    var image: NSImage?
+    for renderer in renderers {
+      guard let cg = renderer.cgImage else { continue }
+      let size = NSSize(width: CGFloat(cg.width) / renderer.scale, height: CGFloat(cg.height) / renderer.scale)
+      let rep = NSBitmapImageRep(cgImage: cg)
+      rep.size = size
+      if image == nil { image = NSImage(size: size) }
+      image?.addRepresentation(rep)
+    }
+    button.image = image
+    if let image { item.length = ceil(image.size.width) + 2 }
+  }
+}
+
+@MainActor
+private final class LabelAppearance: ObservableObject {
+  @Published var colorScheme: ColorScheme = .dark
+}
+
+private struct LabelImageContent: View {
+  let content: AnyView
+  @ObservedObject var appearance: LabelAppearance
+
+  var body: some View {
+    content
+      .fixedSize()
+      .environment(\.colorScheme, appearance.colorScheme)
   }
 }

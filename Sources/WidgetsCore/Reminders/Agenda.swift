@@ -120,13 +120,6 @@ public enum Agenda {
     return parts
   }
 
-  public static func tooltip(_ s: Summary) -> String {
-    var parts = dueParts(s)
-    if parts.isEmpty { parts.append("nothing left today") }
-    if s.tomorrow > 0 { parts.append("\(s.tomorrow) tomorrow") }
-    return "Reminders: " + parts.joined(separator: " · ")
-  }
-
   /// The number in the menu bar: while something is past due (red bell),
   /// only those; otherwise everything left today.
   public static func barCount(_ s: Summary) -> Int { s.late > 0 ? s.late : s.due }

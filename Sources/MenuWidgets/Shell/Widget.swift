@@ -14,7 +14,9 @@ protocol MenuWidget: AnyObject {
   var id: String { get }
 
   /// The status item's content. Keep it to one line of menu-bar text and/or
-  /// an SF Symbol; it is rendered inside the status button.
+  /// an SF Symbol. It is drawn into the status button's image (so the menu
+  /// bar can dim it on an inactive screen) and redrawn when its state
+  /// changes.
   @ViewBuilder func label() -> Label
 
   /// The popup panel's content. `host` lets it open or close a side pane,

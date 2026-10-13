@@ -59,13 +59,6 @@ struct AgentsLabel: View {
           .foregroundStyle(tint)
       }
     }
-    .help(labelHelp)
-  }
-
-  private var labelHelp: String {
-    guard let r = model.record else { return "Claude Code usage" }
-    let parts = r.limits.map { "\($0.displayTitle) \(Int(($0.percent * 100).rounded()))%" }
-    return parts.isEmpty ? (r.usageStatusText.isEmpty ? "Claude Code usage" : r.usageStatusText) : parts.joined(separator: " · ")
   }
 }
 

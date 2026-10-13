@@ -69,7 +69,7 @@ private func entry(_ i: ReminderItem, now: Date = NOW) -> AgendaEntry {
   #expect(!Agenda.isLate(entry(item(due: at(2026, 9, 26, 8))), now: NOW))
 }
 
-@Test func remindersSummaryAndTooltip() {
+@Test func remindersSummary() {
   let items = [
     item("1", due: at(2026, 9, 20, 10)),
     item("2", due: NOW.addingTimeInterval(-HOUR)),
@@ -80,8 +80,6 @@ private func entry(_ i: ReminderItem, now: Date = NOW) -> AgendaEntry {
   let s = Agenda.summary(Agenda.entries(items, now: NOW), done: ["5"], now: NOW)
   #expect(s == Agenda.Summary(overdue: 1, today: 2, tomorrow: 1, late: 2))
   #expect(s.due == 3 && s.upcoming == 1)
-  #expect(Agenda.tooltip(s) == "Reminders: 2 past due · 1 left today · 1 tomorrow")
-  #expect(Agenda.tooltip(Agenda.Summary()) == "Reminders: nothing left today")
   #expect(Agenda.barCount(s) == 2)
   #expect(Agenda.barCount(Agenda.Summary(today: 3)) == 3)
   #expect(Agenda.dueParts(Agenda.Summary(tomorrow: 1)) == [])

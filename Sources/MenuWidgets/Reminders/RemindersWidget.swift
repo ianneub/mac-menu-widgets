@@ -63,6 +63,5 @@ struct RemindersLabel: View {
           .foregroundStyle(late ? Color.red : Color.primary)
       }
     }
-    .help(model.access == .denied ? "Reminders: no access" : model.loaded ? Agenda.tooltip(s) : "Reminders")
   }
 }
