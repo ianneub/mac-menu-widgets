@@ -163,7 +163,14 @@ final class TimeState: ObservableObject {
     hoverTarget = index
     hideWork?.cancel()
     hideWork = nil
-    if shownIndex != index { shownIndex = index }
+    guard shownIndex != index, let host else {
+      self.host?.cancelAim()
+      return
+    }
+    host.aim { [weak self] in
+      guard let self, self.hoverTarget == index else { return }
+      self.shownIndex = index
+    }
   }
 
   func hoverExit(_ index: Int) {
@@ -189,6 +196,7 @@ final class TimeState: ObservableObject {
   /// zones); the pane follows. From no selection, Down starts at the top
   /// and Up at the bottom.
   func step(_ delta: Int) {
+    host?.cancelAim()
     let order = [TimeState.here, TimeState.moon] + Array(zones.indices)
     guard let current = order.firstIndex(of: shownIndex) else {
       shownIndex = delta > 0 ? order[0] : order[order.count - 1]

@@ -108,7 +108,14 @@ final class WeatherPanelState: ObservableObject {
   func hoverEnter(_ i: Int) {
     hoverTarget = i
     hideWork?.cancel()
-    shownIndex = i
+    guard shownIndex != i, let host else {
+      self.host?.cancelAim()
+      return
+    }
+    host.aim { [weak self] in
+      guard let self, self.hoverTarget == i else { return }
+      self.shownIndex = i
+    }
   }
 
   func hoverExit(_ i: Int) {
@@ -129,6 +136,7 @@ final class WeatherPanelState: ObservableObject {
   /// Up/Down walk the forecast rows; the pane follows.
   func step(_ delta: Int, count n: Int) {
     guard n > 0 else { return }
+    host?.cancelAim()
     let next = shownIndex < 0 ? (delta > 0 ? 0 : n - 1) : shownIndex + delta
     shownIndex = next < 0 || next >= n ? -1 : next
   }

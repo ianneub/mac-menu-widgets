@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WidgetsCore
 
 /// One menu-bar widget: the label drawn in the status item and the popup
 /// shown under it. Each widget lives in its own folder (Time/, Weather/,
@@ -62,6 +63,53 @@ final class PanelHost: ObservableObject {
 
   /// True while the pointer is over the side pane.
   @Published var pointerInSidePane = false
+
+  /// A hovered row hands over the switch to its pane here. With no pane
+  /// open it runs now. With one open, it waits while the pointer is heading
+  /// for the pane (see PaneAim), so moving diagonally onto the pane doesn't
+  /// hand it to the rows crossed on the way. It runs later or never, so it
+  /// should check its row is still the hovered one.
+  func aim(_ commit: @escaping () -> Void) {
+    guard controller?.sidePaneFrame != nil else {
+      cancelAim()
+      commit()
+      return
+    }
+    aimCommit = commit
+    guard aimTimer == nil else { return }
+    aimFrom = NSEvent.mouseLocation
+    let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated { self?.checkAim() }
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    aimTimer = timer
+  }
+
+  /// Drops a waiting switch (the popup closed, or a key moved the selection).
+  func cancelAim() {
+    aimTimer?.invalidate()
+    aimTimer = nil
+    aimCommit = nil
+  }
+
+  private var aimFrom = CGPoint.zero
+  private var aimCommit: (() -> Void)?
+  private var aimTimer: Timer?
+
+  private func checkAim() {
+    let now = NSEvent.mouseLocation
+    let verdict = controller?.sidePaneFrame.map { PaneAim.judge(from: aimFrom, to: now, pane: $0) } ?? .settled
+    switch verdict {
+    case .heading:
+      aimFrom = now
+    case .arrived:
+      cancelAim()
+    case .settled:
+      let commit = aimCommit
+      cancelAim()
+      commit?()
+    }
+  }
 
   func close() { controller?.close() }
 }

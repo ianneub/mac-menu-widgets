@@ -9,7 +9,9 @@
 MenuWidgets is a small native Swift app that adds five items to the menu bar.
 Any of them can be turned off (see [Configuration](#configuration)).
 Click one to open its panel; Esc closes it. In the Time and Weather panels,
-hover a row (or use ↑/↓) for a detail pane beside it. MenuWidgets can also
+hover a row (or use ↑/↓) for a detail pane beside it. As in a macOS menu, the
+pane stays put while you move the pointer toward it, even across other rows.
+MenuWidgets can also
 run commands from global keyboard shortcuts, optionally only in certain apps
 (see `hotkeys` under [Configuration](#configuration)).
 

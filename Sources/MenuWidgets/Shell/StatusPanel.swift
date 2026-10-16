@@ -98,6 +98,7 @@ final class StatusPanel: NSObject {
 
   private func hide() {
     guard isOpen else { return }
+    host.cancelAim()
     hideSidePaneNow()
     popup.orderOut(nil)
     statusItem.button?.highlight(false)
@@ -146,6 +147,12 @@ final class StatusPanel: NSObject {
   }
 
   // MARK: side pane
+
+  /// The side pane's frame on screen while it's showing.
+  var sidePaneFrame: NSRect? {
+    guard let pane = sidePane, pane.isVisible else { return nil }
+    return pane.frame
+  }
 
   func showSidePane(_ view: AnyView, anchorY: CGFloat) {
     hideWork?.cancel()
