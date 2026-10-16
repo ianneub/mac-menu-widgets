@@ -3,7 +3,8 @@
 # MENU_WIDGETS_SIGN_IDENTITY (or ~/.config/menu-widgets/sign-identity) names a
 # code-signing identity: macOS ties the Reminders and Calendars permissions to the signature,
 # so an ad-hoc build asks again after every rebuild, and a stable identity
-# (even a self-signed one) keeps it.
+# (even a self-signed one) keeps it. PIM Bridge, which reads Gmail for the
+# mail widget, answers only an app signed with the identity it expects.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build -c release
@@ -47,5 +48,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 IDENTITY_FILE="$HOME/.config/menu-widgets/sign-identity"
 IDENTITY="${MENU_WIDGETS_SIGN_IDENTITY:-$( [ -f "$IDENTITY_FILE" ] && head -n1 "$IDENTITY_FILE" || echo -)}"
-codesign --force --deep --sign "$IDENTITY" --identifier com.ianneub.menu-widgets "$APP"
+# The hardened runtime (with only the entitlements MenuWidgets uses) keeps
+# other code out of the process: PIM Bridge requires it before it answers.
+codesign --force --deep --sign "$IDENTITY" --identifier com.ianneub.menu-widgets \
+  --options runtime --entitlements Assets/MenuWidgets.entitlements "$APP"
 echo "built $APP ($VERSION)"

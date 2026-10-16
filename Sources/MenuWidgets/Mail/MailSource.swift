@@ -10,15 +10,13 @@ class MailSource: ObservableObject, Identifiable {
   enum Status: Equatable {
     case loading
     case ok
-    /// Gmail: no OAuth client file yet (see the README).
-    case needsSetup
     case needsSignIn
     case signingIn
     case error(String)
 
     var needsAttention: Bool {
       switch self {
-      case .needsSetup, .needsSignIn, .error: return true
+      case .needsSignIn, .error: return true
       default: return false
       }
     }
@@ -52,6 +50,21 @@ class MailSource: ObservableObject, Identifiable {
     lastFetch = Date()
     status = .ok
     onUpdate(self, before, beforeFetch)
+  }
+
+  /// Takes items off the list now (trashed from the panel) without
+  /// waiting for the next read; their banners are withdrawn.
+  func remove(ids: Set<String>) {
+    guard let before = items else { return }
+    items = before.filter { !ids.contains($0.id) }
+    onUpdate(self, before, lastFetch)
+  }
+
+  /// Puts items back (an undone trash) quietly: they aren't news.
+  func restore(_ back: [MailItem]) {
+    guard let current = items else { return }
+    let have = Set(current.map(\.id))
+    items = current + back.filter { !have.contains($0.id) }
   }
 
   /// Forget the list (signed out): the next read is a first look again, so

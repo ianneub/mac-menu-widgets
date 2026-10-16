@@ -58,12 +58,14 @@ run commands from global keyboard shortcuts, optionally only in certain apps
   open it in your browser. A new email gets a notification banner (click it to
   open the email), which goes away once you read or archive it elsewhere. Mail
   already waiting at launch gets none, and more than three at once get one
-  summary banner. HEY is read through the
-  [`hey` CLI](https://github.com/basecamp/hey-cli), whose `watch` pushes
-  changes as they happen; Gmail is checked every 30 seconds through the Gmail
-  API, read-only (headers and snippets only, never message bodies). Each check
-  reads at most the newest 100 unread Gmail messages and 50 HEY threads, so a
-  bigger backlog shows a lower count.
+  summary banner. Hover a Gmail conversation (or move to it with the arrow
+  keys) and click its trash can, or press ⌫, to move the whole conversation to
+  Gmail's Trash; **Undo** puts it back for a few seconds after. HEY is read
+  through the [`hey` CLI](https://github.com/basecamp/hey-cli), whose `watch`
+  pushes changes as they happen; Gmail is read through
+  [PIM Bridge](https://github.com/ianneub/pim-bridge) every 30 seconds (see
+  [Gmail setup](#gmail-setup)). Each check reads at most the newest 100 unread
+  Gmail messages and 50 HEY threads, so a bigger backlog shows a lower count.
 
 ## Requirements
 
@@ -100,6 +102,10 @@ macOS ties the Reminders and Calendars permissions to the app's signature, so an
 asks again after each rebuild. To keep it, sign with a stable identity (a
 self-signed code-signing certificate from Keychain Access works): put its name
 in `~/.config/menu-widgets/sign-identity` or `MENU_WIDGETS_SIGN_IDENTITY`.
+The app is signed with the hardened runtime and only the entitlements it uses
+(`Assets/MenuWidgets.entitlements`: calendars, which covers reminders,
+location, and Apple Events for hotkey commands that script other apps). PIM
+Bridge requires that, and answers only the identity it was set up to expect.
 
 The Reminders widget reads the URL field through ReminderKit, the private
 framework under EventKit, since EventKit doesn't expose it. If a macOS update
@@ -110,11 +116,7 @@ To hide the system clock's time now that the Time widget shows it, set
 
 ### Uninstall
 
-Sign your Gmail accounts out first (the **⋯** menu in the Mail panel) to
-remove their refresh tokens from the Keychain. For an account no longer in
-`mail.gmail`, run
-`security delete-generic-password -s com.ianneub.menu-widgets.gmail-token`
-until it finds no item. Then:
+MenuWidgets keeps no Gmail sign-ins of its own (PIM Bridge holds them). Then:
 
 ```sh
 launchctl bootout "gui/$(id -u)/com.ianneub.menu-widgets"
@@ -166,7 +168,7 @@ app keeps its current settings (or, at launch, the defaults). The defaults are:
     "enabled": true,
     "hey": true,
     "heyCommand": "hey",
-    "gmail": [],
+    "gmail": false,
     "primaryOnly": true,
     "pollIntervalSec": 30,
     "notify": true,
@@ -207,10 +209,10 @@ app keeps its current settings (or, at launch, the defaults). The defaults are:
   picking **Current Location** turns it back on. Either one rewrites
   `config.json` from the settings in use, with every setting filled in and the
   keys sorted (a symlinked or broken file is replaced).
-- `mail.gmail`: the Gmail accounts to watch, each `{"name": "Work", "email":
-  "you@example.com"}`. Both keys are required (`name` labels the panel and the
-  banners); if any entry is missing one, no Gmail account is watched. See
-  [Gmail setup](#gmail-setup).
+- `mail.gmail`: `true` shows every Gmail account signed in to PIM Bridge, in
+  the bridge's order and under the names it gives them. See
+  [Gmail setup](#gmail-setup). (Older configs listed the accounts here; a list
+  with any accounts in it counts as `true`.)
 - `mail.heyCommand`: the `hey` CLI, by name or full path. (The app is started
   by launchd with a short PATH, so it also looks in `~/.local/share/mise/shims`,
   `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`.) Set `mail.hey` to
@@ -249,30 +251,23 @@ app keeps its current settings (or, at launch, the defaults). The defaults are:
 
 ### Gmail setup
 
-Gmail needs an OAuth client of your own, made once in the Google Cloud console
-(one client serves all your accounts, Workspace or not):
+MenuWidgets reads Gmail through [PIM Bridge](https://github.com/ianneub/pim-bridge),
+which owns the Google sign-in and tokens for every app that uses it. Set it up
+and add your accounts there (its README has the steps), then set
+`mail.gmail` to `true`. MenuWidgets talks to it over the bridge's local socket,
+`~/Library/Application Support/PIMBridge/bridge.sock`, asking for each signed-in
+account's unread inbox (`is:unread in:inbox`, plus `category:primary` with
+`mail.primaryOnly`), and for moving a conversation to the Trash or back.
 
-1. At [console.cloud.google.com](https://console.cloud.google.com), create a
-   project (any name).
-2. **APIs & Services → Library**: find **Gmail API** and enable it.
-3. **Google Auth Platform** (the OAuth consent screen): fill in an app name and
-   your email, and pick **External** as the audience. Then, under
-   **Audience**, click **Publish app**. Leave it in testing and Google expires
-   the sign-in after 7 days.
-4. **Clients → Create client**, type **Desktop app**. Download its JSON and
-   save it as `~/.config/menu-widgets/google-oauth-client.json`.
-5. Add your accounts under `mail.gmail` in the config, open the Mail panel and
-   click **Sign in with Google** for each one. Google will warn that it hasn't
-   verified the app (it's yours): **Advanced → Go to … (unsafe)**, then allow
-   reading email metadata.
+The bridge checks the signature of every app on the socket and answers only
+MenuWidgets signed with the identity it expects and the hardened runtime. If
+the panel says PIM Bridge refused MenuWidgets, `~/Library/Logs/PIMBridge.log`
+says why. If it says PIM Bridge isn't running, start the bridge.
 
-The refresh tokens are kept in your login Keychain (service
-`com.ianneub.menu-widgets.gmail-token`). To sign an account out, use the **⋯** menu
-next to its name in the panel.
-
-A Google Workspace admin may block unverified apps. If sign-in says access is
-blocked, an admin can allow the client by its ID under **Admin console →
-Security → API controls → Manage third-party app access**.
+When an account's sign-in runs out (a Google app in testing expires sign-ins
+after 7 days), its section says so: click **Sign in…** and finish in the
+browser. **⋯ → Sign out** signs the account out of PIM Bridge, for every app
+that uses it. New accounts are added in PIM Bridge, not here.
 
 ## Development
 
@@ -283,7 +278,7 @@ swift scripts/make-icon.swift Assets/AppIcon.png   # redraw the app icon
 ```
 
 `WidgetsCore` holds the pure logic (time zones, astronomy, weather and usage
-parsing, the reminders agenda, repeat rules and "when" parsing, mail diffing and the Gmail/HEY/OAuth parsing) and its tests; `MenuWidgets` is the AppKit/SwiftUI app.
+parsing, the reminders agenda, repeat rules and "when" parsing, mail diffing and the Gmail/HEY and PIM Bridge parsing) and its tests; `MenuWidgets` is the AppKit/SwiftUI app.
 
 ## License
 

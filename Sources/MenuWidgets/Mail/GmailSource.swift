@@ -1,332 +1,242 @@
 import AppKit
 import Foundation
-import Network
 import WidgetsCore
 
-/// One Gmail account through the Gmail API, polled every `interval`
-/// seconds: list the unread Primary inbox messages, then fetch headers for
-/// the ones not seen before. Signs in with the browser (OAuth, loopback
-/// redirect); the refresh token lives in the Keychain.
+/// Gmail through PIM Bridge, which owns the Google sign-in: the accounts
+/// are whatever the bridge has, and each poll asks it for the account list
+/// and then each signed-in account's unread inbox. Polls every `interval`
+/// seconds, and every few seconds while an account is signing in.
 @MainActor
-final class GmailSource: MailSource {
-  let email: String
+final class GmailHub: ObservableObject {
+  enum State: Equatable {
+    case connecting
+    case ok
+    case failed(BridgeClient.Failure)
+  }
+
+  @Published private(set) var state: State = .connecting
+  /// The bridge's word on Gmail as a whole (no OAuth client set up, say).
+  @Published private(set) var problem: String?
+  /// One per account, in the bridge's order.
+  @Published private(set) var sources: [GmailSource] = []
+  /// Called when accounts come or go, so the model can watch the new ones.
+  var onSourcesChanged: () -> Void = {}
+
+  private let client = BridgeClient()
   private let primaryOnly: Bool
   private let interval: TimeInterval
-  private var access: GoogleOAuth.Token?
-  /// The refresh token, read from the Keychain once and kept here.
-  private var refreshToken: String?
-  private var cache: [String: GmailMail.Message] = [:]
-  private var poll: Timer?
+  private var timer: Timer?
   private var fetching = false
-  private var signIn: LoopbackSignIn?
+  private var again = false
+  private var stopped = false
 
-  /// The "Desktop app" OAuth client from the Google Cloud console, saved
-  /// as downloaded.
-  static var clientFile: URL { WidgetsConfig.directory.appendingPathComponent("google-oauth-client.json") }
-
-  static func loadClient() -> GoogleOAuth.Client? {
-    (try? Data(contentsOf: clientFile)).flatMap(GoogleOAuth.client(json:))
-  }
-
-  init(account: WidgetsConfig.MailSettings.GmailAccount, primaryOnly: Bool, interval: TimeInterval) {
-    email = account.email.lowercased()
+  init(primaryOnly: Bool, interval: TimeInterval) {
     self.primaryOnly = primaryOnly
     self.interval = interval
-    super.init(id: GmailMail.accountID(account.email), name: account.name,
-               inboxURL: GmailMail.webURL(email: account.email))
-    refreshToken = Keychain.read(email)
   }
 
-  var signedIn: Bool { refreshToken != nil }
+  var needsAttention: Bool {
+    if case .failed = state { return true }
+    return problem != nil
+  }
 
-  override func start() {
-    refresh()
-    let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+  var lastFetch: Date? { sources.compactMap(\.lastFetch).max() }
+
+  func start() { refresh() }
+
+  func stop() {
+    stopped = true
+    timer?.invalidate()
+    timer = nil
+    client.disconnect()
+  }
+
+  func refresh() {
+    guard !stopped else { return }
+    if fetching { again = true; return }
+    fetching = true
+    timer?.invalidate()
+    Task {
+      await poll()
+      fetching = false
+      if again { again = false; refresh() } else { schedule() }
+    }
+  }
+
+  private func schedule() {
+    guard !stopped else { return }
+    let signingIn = sources.contains { $0.status == .signingIn }
+    let t = Timer(timeInterval: signingIn ? 3 : interval, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated { self?.refresh() }
     }
     RunLoop.main.add(t, forMode: .common)
-    poll = t
+    timer = t
   }
 
-  override func stop() {
-    poll?.invalidate()
-    poll = nil
-    signIn?.cancel()
-    signIn = nil
-  }
-
-  override func refresh() {
-    guard !fetching, status != .signingIn else { return }
-    guard let client = Self.loadClient() else { status = .needsSetup; return }
-    guard let refreshToken else { status = .needsSignIn; return }
-    fetching = true
-    Task {
-      defer { fetching = false }
+  private func poll() async {
+    let list: GmailMail.Accounts
+    do {
+      list = try GmailMail.accounts(json: try await client.call("accounts"))
+    } catch {
+      // Keep the accounts and their last lists; the panel says what's wrong.
+      state = .failed(Self.failure(error))
+      return
+    }
+    state = .ok
+    problem = list.problem
+    reconcile(list.accounts)
+    for s in sources where s.account.status == .signedIn {
       do {
-        publish(try await fetchItems(client: client, refreshToken: refreshToken))
-      } catch let e as GoogleOAuth.TokenError {
-        if case .invalidGrant = e {
-          Keychain.delete(email)
-          self.refreshToken = nil
-          clear()
-          status = .needsSignIn
-        } else if case .other(let msg) = e {
-          status = .error(msg)
-        }
-      } catch let e as GmailError {
-        status = .error(e.message)
+        let data = try await client.call("search", [
+          "account": s.email, "query": GmailMail.unreadQuery(primaryOnly: primaryOnly), "max": 100,
+        ])
+        s.publishFromBridge(GmailMail.items(email: s.email, messages: try GmailMail.messages(searchJSON: data)))
       } catch {
-        // Offline and the like: keep the last list, say so in the panel.
-        status = .error(error.localizedDescription)
+        let f = Self.failure(error)
+        if f == .notRunning || f == .refused { state = .failed(f); return }
+        s.status = .error(f.message)
       }
     }
   }
 
-  // MARK: Gmail API
+  /// Matches the bridge's accounts to sources, keeping a source (and its
+  /// last list, which the diff needs) while its account stays the same.
+  private func reconcile(_ accounts: [GmailMail.Account]) {
+    let old = Dictionary(sources.map { ($0.email, $0) }, uniquingKeysWith: { a, _ in a })
+    let next = accounts.map { a -> GmailSource in
+      let email = a.email.lowercased()
+      if let s = old[email], s.name == a.name { s.update(a); return s }
+      let s = GmailSource(account: a, hub: self)
+      s.update(a)
+      return s
+    }
+    if next.map(ObjectIdentifier.init) != sources.map(ObjectIdentifier.init) {
+      sources = next
+      onSourcesChanged()
+    }
+  }
 
-  struct GmailError: Error { let message: String }
+  static func failure(_ error: Error) -> BridgeClient.Failure {
+    if let f = error as? BridgeClient.Failure { return f }
+    if error is DecodingError { return .other("PIM Bridge sent a reply MenuWidgets can't read.") }
+    return .other(error.localizedDescription)
+  }
 
-  private func fetchItems(client: GoogleOAuth.Client, refreshToken: String) async throws -> [MailItem] {
-    let list = try await get(GmailMail.listURL(primaryOnly: primaryOnly), client: client, refreshToken: refreshToken)
-    let refs = try GmailMail.refs(listJSON: list)
-    let missing = refs.map(\.id).filter { cache[$0] == nil }
-    if !missing.isEmpty {
-      let token = try await accessToken(client: client, refreshToken: refreshToken)
-      let fetched = try await withThrowingTaskGroup(of: GmailMail.Message.self) { group in
-        for id in missing {
-          group.addTask { try await Self.fetchMessage(id: id, token: token) }
-        }
-        var out: [GmailMail.Message] = []
-        for try await m in group { out.append(m) }
-        return out
+  // MARK: actions
+
+  func signIn(_ s: GmailSource) {
+    s.status = .signingIn
+    Task {
+      do {
+        let data = try await client.call("sign_in", ["email": s.email])
+        struct Reply: Decodable { let url: String? }
+        s.signInURL = (try? JSONDecoder().decode(Reply.self, from: data))?.url.flatMap(URL.init(string:))
+      } catch {
+        s.status = .error(Self.failure(error).message)
       }
-      for m in fetched { cache[m.id] = m }
+      refresh()
     }
-    let live = Set(refs.map(\.id))
-    cache = cache.filter { live.contains($0.key) }
-    return GmailMail.items(email: email, messages: Array(cache.values))
   }
 
-  private nonisolated static func fetchMessage(id: String, token: String) async throws -> GmailMail.Message {
-    var req = URLRequest(url: GmailMail.messageURL(id: id))
-    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    let (data, resp) = try await URLSession.shared.data(for: req)
-    guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-      throw GmailError(message: GmailMail.errorMessage(json: data) ?? "Gmail returned an error")
-    }
-    return try GmailMail.message(json: data)
-  }
-
-  /// GET with the account's token; a 401 drops the token and tries once more.
-  private func get(_ url: URL, client: GoogleOAuth.Client, refreshToken: String, retried: Bool = false) async throws -> Data {
-    let token = try await accessToken(client: client, refreshToken: refreshToken)
-    var req = URLRequest(url: url)
-    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    let (data, resp) = try await URLSession.shared.data(for: req)
-    let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-    if code == 401, !retried {
-      access = nil
-      return try await get(url, client: client, refreshToken: refreshToken, retried: true)
-    }
-    guard code == 200 else {
-      throw GmailError(message: GmailMail.errorMessage(json: data) ?? "Gmail returned HTTP \(code)")
-    }
-    return data
-  }
-
-  private func accessToken(client: GoogleOAuth.Client, refreshToken: String) async throws -> String {
-    if let a = access, a.expires > Date() { return a.access }
-    let t = try await Self.tokenRequest(GoogleOAuth.refreshBody(client: client, refreshToken: refreshToken))
-    access = t
-    return t.access
-  }
-
-  nonisolated static func tokenRequest(_ body: Data) async throws -> GoogleOAuth.Token {
-    var req = URLRequest(url: GoogleOAuth.tokenEndpoint)
-    req.httpMethod = "POST"
-    req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-    req.httpBody = body
-    let (data, _) = try await URLSession.shared.data(for: req)
-    return try GoogleOAuth.token(json: data).get()
-  }
-
-  // MARK: sign-in
-
-  func startSignIn() {
-    guard let client = Self.loadClient() else { status = .needsSetup; return }
-    signIn?.cancel()
-    status = .signingIn
-    let flow = LoopbackSignIn(client: client, email: email)
-    signIn = flow
-    flow.run { [weak self] result in
-      guard let self else { return }
-      self.signIn = nil
-      switch result {
-      case .success(let token):
-        guard let refresh = token.refresh else { self.status = .error("Google didn't return a refresh token."); return }
-        Keychain.save(self.email, refresh)
-        self.refreshToken = refresh
-        self.access = token
-        self.status = .loading
-        self.refresh()
-      case .failure(let e):
-        self.status = e.message.isEmpty ? .needsSignIn : .error(e.message)
+  func signOut(_ s: GmailSource) {
+    Task {
+      do {
+        _ = try await client.call("sign_out", ["account": s.email])
+      } catch {
+        s.status = .error(Self.failure(error).message)
       }
+      refresh()
     }
   }
 
-  func cancelSignIn() {
-    signIn?.cancel()
-    signIn = nil
-    status = signedIn ? .ok : .needsSignIn
-  }
-
-  func signOut() {
-    Keychain.delete(email)
-    refreshToken = nil
-    access = nil
-    cache = [:]
-    clear()
-    status = .needsSignIn
+  /// Moves whole threads to the Trash, or back out of it (`undo`).
+  func move(threads: [String], in s: GmailSource, undo: Bool) async throws {
+    let data = try await client.call(undo ? "untrash_thread" : "trash_thread",
+                                     ["account": s.email, "thread_ids": threads])
+    let result = try PIMBridge.threadMove(json: data)
+    if let first = result.failed.first { throw BridgeClient.Failure.tool(first.error) }
   }
 }
 
-/// The browser half of Google sign-in: listen on 127.0.0.1, send the
-/// browser to Google, take the code from the redirect, trade it for tokens,
-/// and check the account is the one asked for.
+/// One Gmail account as the bridge reports it.
 @MainActor
-final class LoopbackSignIn {
-  struct Failure: Error { let message: String }
+final class GmailSource: MailSource {
+  let email: String
+  private(set) var account: GmailMail.Account
+  /// Why the account has to sign in again, from the bridge.
+  @Published private(set) var problem: String?
+  /// The Google page for a sign-in under way, to open it again.
+  @Published var signInURL: URL?
+  private weak var hub: GmailHub?
+  /// Threads trashed from the panel, kept out of the list until the
+  /// bridge's search stops returning them (one already under way may not).
+  private var trashed: Set<String> = []
 
-  private let client: GoogleOAuth.Client
-  private let email: String
-  private let verifier = GoogleOAuth.makeVerifier()
-  private let state = UUID().uuidString
-  private var listener: NWListener?
-  private var timeout: DispatchWorkItem?
-  private var done: ((Result<GoogleOAuth.Token, Failure>) -> Void)?
-
-  init(client: GoogleOAuth.Client, email: String) {
-    self.client = client
-    self.email = email
+  init(account: GmailMail.Account, hub: GmailHub) {
+    email = account.email.lowercased()
+    self.account = account
+    self.hub = hub
+    super.init(id: GmailMail.accountID(account.email), name: account.name,
+               inboxURL: GmailMail.webURL(email: account.email))
   }
 
-  func run(_ completion: @escaping (Result<GoogleOAuth.Token, Failure>) -> Void) {
-    done = completion
-    let params = NWParameters.tcp
-    params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
-    guard let l = try? NWListener(using: params) else { finish(.failure(Failure(message: "Couldn't listen for the sign-in."))); return }
-    listener = l
-    l.stateUpdateHandler = { [weak self] st in
-      DispatchQueue.main.async {
-        MainActor.assumeIsolated {
-          guard let self else { return }
-          switch st {
-          case .ready:
-            guard let port = self.listener?.port?.rawValue else { return }
-            let redirect = "http://127.0.0.1:\(port)"
-            NSWorkspace.shared.open(GoogleOAuth.authURL(client: self.client, redirect: redirect,
-                                                        verifier: self.verifier, state: self.state, loginHint: self.email))
-          case .failed(let e):
-            self.finish(.failure(Failure(message: "Sign-in listener failed: \(e.localizedDescription)")))
-          default: break
-          }
-        }
-      }
-    }
-    l.newConnectionHandler = { [weak self] conn in
-      DispatchQueue.main.async { MainActor.assumeIsolated { self?.accept(conn) } }
-    }
-    l.start(queue: .main)
-    let t = DispatchWorkItem { [weak self] in
-      MainActor.assumeIsolated { self?.finish(.failure(Failure(message: "Sign-in timed out."))) }
-    }
-    timeout = t
-    DispatchQueue.main.asyncAfter(deadline: .now() + 300, execute: t)
-  }
+  var signedIn: Bool { account.status == .signedIn }
 
-  func cancel() {
-    done = nil
-    stop()
-  }
-
-  private func stop() {
-    timeout?.cancel()
-    listener?.cancel()
-    listener = nil
-  }
-
-  private func finish(_ r: Result<GoogleOAuth.Token, Failure>) {
-    stop()
-    let d = done
-    done = nil
-    d?(r)
-  }
-
-  private func accept(_ conn: NWConnection) {
-    conn.start(queue: .main)
-    conn.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) { [weak self] data, _, _, _ in
-      DispatchQueue.main.async {
-        MainActor.assumeIsolated { self?.handle(conn, String(decoding: data ?? Data(), as: UTF8.self)) }
-      }
+  func update(_ a: GmailMail.Account) {
+    let was = account.status
+    account = a
+    problem = a.problem
+    switch a.status {
+    case .signedIn:
+      signInURL = nil
+      if was != .signedIn || status == .needsSignIn || status == .signingIn { status = .loading }
+    case .signingIn:
+      status = .signingIn
+    case .needsSignIn:
+      // Forget the list: after signing in again the backlog isn't news.
+      clear()
+      signInURL = nil
+      status = .needsSignIn
     }
   }
 
-  private func handle(_ conn: NWConnection, _ request: String) {
-    let firstLine = request.split(separator: "\r\n").first.map(String.init) ?? ""
-    switch GoogleOAuth.callback(requestLine: firstLine) {
-    case .unrelated:
-      respond(conn, status: "404 Not Found", body: "")
-    case .error(let e):
-      respond(conn, body: page("Sign-in cancelled", "Google said: \(e). You can close this tab."))
-      finish(.failure(Failure(message: e == "access_denied" ? "" : "Google sign-in failed: \(e)")))
-    case .code(let code, let st):
-      guard st == state else {
-        respond(conn, status: "400 Bad Request", body: page("Sign-in failed", "The reply didn't match this sign-in."))
-        return
-      }
-      respond(conn, body: page("Signed in", "MenuWidgets can now check \(email) for new mail. You can close this tab."))
-      exchange(code: code, redirect: "http://127.0.0.1:\(listener?.port?.rawValue ?? 0)")
+  func publishFromBridge(_ items: [MailItem]) {
+    let ids = Set(items.map(\.id))
+    trashed.formIntersection(ids)
+    publish(items.filter { !trashed.contains($0.id) })
+  }
+
+  override func refresh() { hub?.refresh() }
+
+  func signIn() { hub?.signIn(self) }
+  func signOut() { hub?.signOut(self) }
+
+  /// Trashes an item's thread: off the list at once, then over the socket.
+  /// On failure it comes back with the error shown.
+  func trash(_ item: MailItem) async -> Bool {
+    guard let hub, let thread = GmailMail.threadID(itemID: item.id, email: email) else { return false }
+    trashed.insert(item.id)
+    remove(ids: [item.id])
+    do {
+      try await hub.move(threads: [thread], in: self, undo: false)
+      return true
+    } catch {
+      trashed.remove(item.id)
+      restore([item])
+      status = .error(GmailHub.failure(error).message)
+      return false
     }
   }
 
-  private func exchange(code: String, redirect: String) {
-    let body = GoogleOAuth.exchangeBody(client: client, code: code, verifier: verifier, redirect: redirect)
-    listener?.cancel()
-    Task {
-      do {
-        let token = try await GmailSource.tokenRequest(body)
-        // Make sure the browser signed in the account this row is for.
-        var req = URLRequest(url: GmailMail.profileURL)
-        req.setValue("Bearer \(token.access)", forHTTPHeaderField: "Authorization")
-        let (data, _) = try await URLSession.shared.data(for: req)
-        let got = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["emailAddress"] as? String ?? ""
-        guard got.lowercased() == email else {
-          finish(.failure(Failure(message: got.isEmpty ? "Couldn't confirm the account." : "Signed in as \(got), not \(email). Try again and pick \(email).")))
-          return
-        }
-        finish(.success(token))
-      } catch let e as GoogleOAuth.TokenError {
-        if case .invalidGrant(let m) = e { finish(.failure(Failure(message: m))) }
-        else if case .other(let m) = e { finish(.failure(Failure(message: m))) }
-      } catch {
-        finish(.failure(Failure(message: error.localizedDescription)))
-      }
+  func untrash(_ item: MailItem) async {
+    guard let hub, let thread = GmailMail.threadID(itemID: item.id, email: email) else { return }
+    do {
+      try await hub.move(threads: [thread], in: self, undo: true)
+      trashed.remove(item.id)
+      restore([item])
+    } catch {
+      status = .error(GmailHub.failure(error).message)
     }
-  }
-
-  private func page(_ title: String, _ text: String) -> String {
-    let esc = { (s: String) in s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;") }
-    return """
-    <!doctype html><meta charset="utf-8"><title>\(esc(title))</title>
-    <body style="font: 15px -apple-system, system-ui, sans-serif; max-width: 32em; margin: 15vh auto; padding: 0 16px">
-    <h2>\(esc(title))</h2><p>\(esc(text))</p></body>
-    """
-  }
-
-  private func respond(_ conn: NWConnection, status: String = "200 OK", body: String) {
-    let bytes = Data(body.utf8)
-    let head = "HTTP/1.1 \(status)\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
-    conn.send(content: Data(head.utf8) + bytes, completion: .contentProcessed { _ in conn.cancel() })
+    hub.refresh()
   }
 }

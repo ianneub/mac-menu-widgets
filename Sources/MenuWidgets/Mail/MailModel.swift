@@ -5,12 +5,16 @@ import UserNotifications
 import WidgetsCore
 
 /// The mail widget's state: one source per inbox (HEY first, then the Gmail
-/// accounts in config order), rebuilt when the mail config changes. Each
+/// accounts in PIM Bridge's order), rebuilt when the mail config changes. Each
 /// read is diffed against the last to post banners for new mail and
 /// withdraw them once it's read elsewhere.
 @MainActor
 final class MailModel: ObservableObject {
   @Published private(set) var sources: [MailSource] = []
+  /// Gmail through PIM Bridge, when `mail.gmail` is on.
+  @Published private(set) var gmail: GmailHub?
+  /// The thread just trashed from the panel, for Undo.
+  @Published private(set) var trashed: Trashed?
   @Published private(set) var settings: WidgetsConfig.MailSettings
   @Published private(set) var now = Date()
   /// The panel content's height, which sizes its scroll view.
@@ -22,6 +26,8 @@ final class MailModel: ObservableObject {
   private var sourceWatch: [AnyCancellable] = []
   private var cancellables: Set<AnyCancellable> = []
   private var ticker: Timer?
+  private var hey: HeySource?
+  private var trashedTimer: Timer?
   private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
   init(config: ConfigStore) {
@@ -70,15 +76,27 @@ final class MailModel: ObservableObject {
   }
 
   private func rebuild() {
-    sources.forEach { $0.stop() }
-    var list: [MailSource] = []
-    if settings.hey { list.append(HeySource(command: settings.heyCommand)) }
-    for a in settings.gmail {
-      list.append(GmailSource(account: a, primaryOnly: settings.primaryOnly, interval: TimeInterval(settings.pollIntervalSec)))
-    }
+    hey?.stop()
+    gmail?.stop()
+    hey = settings.hey ? HeySource(command: settings.heyCommand) : nil
+    gmail = settings.gmail ? GmailHub(primaryOnly: settings.primaryOnly, interval: TimeInterval(settings.pollIntervalSec)) : nil
+    gmail?.onSourcesChanged = { [weak self] in self?.wire() }
+    wire()
+    if settings.notify { notifier.requestAuthorization() }
+    hey?.start()
+    gmail?.start()
+  }
+
+  /// Watches the current sources (Gmail's accounts come and go with the
+  /// bridge's list).
+  private func wire() {
+    let list: [MailSource] = (hey.map { [$0] } ?? []) + (gmail?.sources ?? [])
     // Re-publish when any source changes, so the label and panel follow.
     sourceWatch = list.map { s in
       s.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+    if let gmail {
+      sourceWatch.append(gmail.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() })
     }
     for s in list {
       s.onUpdate = { [weak self] src, previous, previousFetch in
@@ -86,8 +104,6 @@ final class MailModel: ObservableObject {
       }
     }
     sources = list
-    if settings.notify { notifier.requestAuthorization() }
-    list.forEach { $0.start() }
   }
 
   private func sourceUpdated(_ src: MailSource, previous: [MailItem]?, previousFetch: Date?) {
@@ -100,9 +116,13 @@ final class MailModel: ObservableObject {
   /// Turned off in the config: stop polling and the `hey watch` process.
   func stop() {
     cancellables.removeAll()
-    sources.forEach { $0.stop() }
+    hey?.stop()
+    gmail?.stop()
+    hey = nil
+    gmail = nil
     sourceWatch = []
     sources = []
+    trashedTimer?.invalidate()
     ticker?.invalidate()
     ticker = nil
     for (center, o) in observers { center.removeObserver(o) }
@@ -112,11 +132,11 @@ final class MailModel: ObservableObject {
   // MARK: summary
 
   var total: Int { sources.reduce(0) { $0 + $1.unread } }
-  var needsAttention: Bool { sources.contains { $0.status.needsAttention } }
+  var needsAttention: Bool { sources.contains { $0.status.needsAttention } || gmail?.needsAttention == true }
   var loaded: Bool { sources.contains { $0.items != nil } }
 
   var heroMeta: String {
-    if sources.isEmpty { return "No inboxes set up" }
+    if sources.isEmpty { return gmail == nil ? "No inboxes set up" : (needsAttention ? "Needs attention" : "Checking") }
     if !loaded { return needsAttention ? "Needs attention" : "Checking" }
     if total == 0 { return "All caught up" }
     return sources.filter { $0.unread > 0 }.map { "\($0.name) \($0.unread)" }.joined(separator: " · ")
@@ -133,7 +153,45 @@ final class MailModel: ObservableObject {
 
   // MARK: actions
 
-  func refresh() { sources.forEach { $0.refresh() } }
+  func refresh() {
+    hey?.refresh()
+    gmail?.refresh()
+  }
+
+  struct Trashed {
+    let item: MailItem
+    let source: GmailSource
+  }
+
+  /// Trashes the row's thread (Gmail only) and offers Undo for a while.
+  func trash(_ item: MailItem) {
+    guard let s = sources.first(where: { $0.id == item.account }) as? GmailSource else { return }
+    if let c = cursor, c >= rows.count - 1 { cursor = rows.count > 1 ? rows.count - 2 : nil }
+    Task { [weak self] in
+      guard await s.trash(item), let self else { return }
+      trashed = Trashed(item: item, source: s)
+      trashedTimer?.invalidate()
+      let t = Timer(timeInterval: 8, repeats: false) { [weak self] _ in
+        MainActor.assumeIsolated { self?.trashed = nil }
+      }
+      RunLoop.main.add(t, forMode: .common)
+      trashedTimer = t
+    }
+  }
+
+  func undoTrash() {
+    guard let t = trashed else { return }
+    trashed = nil
+    trashedTimer?.invalidate()
+    Task { await t.source.untrash(t.item) }
+  }
+
+  func trashCursor() {
+    guard let c = cursor, c < rows.count else { return }
+    trash(rows[c])
+  }
+
+  func canTrash(_ item: MailItem) -> Bool { item.account.hasPrefix("gmail:") }
 
   func open(_ url: URL) {
     NSWorkspace.shared.open(url)
@@ -155,9 +213,7 @@ final class MailModel: ObservableObject {
     now = Date()
     cursor = nil
     // Gmail is polled; catch up now if the last look is more than a few seconds old.
-    for s in sources where s is GmailSource && (s.lastFetch.map { Date().timeIntervalSince($0) > 10 } ?? true) {
-      s.refresh()
-    }
+    if let gmail, gmail.lastFetch.map({ Date().timeIntervalSince($0) > 10 }) ?? true { gmail.refresh() }
   }
 }
 

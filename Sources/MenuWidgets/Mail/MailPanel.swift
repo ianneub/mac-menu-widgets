@@ -4,8 +4,9 @@ import WidgetsCore
 
 /// The popup: a hero with the unread total, then one section per inbox
 /// with its unread threads, newest first. Click a row (or Return on it) to
-/// open the email; click an inbox's name to open the inbox.
-/// Keys: ↑/↓ move, Return opens, r refreshes, Esc closes.
+/// open the email, or its trash can to move a Gmail thread to the Trash);
+/// click an inbox's name to open the inbox.
+/// Keys: ↑/↓ move, Return opens, ⌫ trashes, r refreshes, Esc closes.
 struct MailPanel: View {
   @ObservedObject var model: MailModel
   @FocusState private var focused: Bool
@@ -33,16 +34,20 @@ struct MailPanel: View {
   private var content: some View {
     VStack(alignment: .leading, spacing: 14) {
       hero
-      if model.sources.isEmpty {
-        Text("Turn on HEY or add Gmail accounts under \"mail\" in ~/.config/menu-widgets/config.json.")
+      if model.sources.isEmpty && model.gmail == nil {
+        Text("Turn on HEY or Gmail under \"mail\" in ~/.config/menu-widgets/config.json.")
           .font(.system(size: 12))
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }
+      let firstGmail = model.sources.firstIndex { $0 is GmailSource } ?? model.sources.count
       ForEach(Array(model.sources.enumerated()), id: \.element.id) { i, s in
         let offset = model.sources.prefix(i).reduce(0) { $0 + model.visible($1).count }
+        if i == firstGmail, let hub = model.gmail { BridgeNotice(hub: hub) }
         MailSection(model: model, source: s, offset: offset)
       }
+      if firstGmail == model.sources.count, let hub = model.gmail { BridgeNotice(hub: hub) }
+      if let t = model.trashed { undoBar(t) }
       footer
     }
     .padding(16)
@@ -54,6 +59,7 @@ struct MailPanel: View {
     case .upArrow: model.moveCursor(-1); return .handled
     case .downArrow: model.moveCursor(1); return .handled
     case .return: model.openCursor(); return .handled
+    case .delete, .deleteForward: model.trashCursor(); return .handled
     default: break
     }
     guard press.modifiers.subtracting(.shift).isEmpty else { return .ignored }
@@ -81,10 +87,24 @@ struct MailPanel: View {
     }
   }
 
+  private func undoBar(_ t: MailModel.Trashed) -> some View {
+    HStack(spacing: 8) {
+      Image(systemName: "trash").foregroundStyle(.secondary)
+      Text("Moved \u{201C}\(t.item.subject)\u{201D} to the Trash")
+        .font(.system(size: 12))
+        .lineLimit(1)
+      Spacer(minLength: 4)
+      Button("Undo") { model.undoTrash() }.controlSize(.small)
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 6)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
+  }
+
   private var footer: some View {
     let last = model.sources.compactMap(\.lastFetch).max()
-    return Text(last.map { "Updated \($0.formatted(date: .omitted, time: .shortened))  ·  ↑↓ move  ·  return open  ·  r refresh" }
-                ?? "↑↓ move  ·  return open  ·  r refresh")
+    let keys = model.gmail == nil ? "↑↓ move  ·  return open  ·  r refresh" : "↑↓ move  ·  return open  ·  ⌫ trash  ·  r refresh"
+    return Text(last.map { "Updated \($0.formatted(date: .omitted, time: .shortened))  ·  \(keys)" } ?? keys)
       .font(.system(size: 10))
       .foregroundStyle(.tertiary)
       .lineLimit(1)
@@ -145,7 +165,8 @@ struct MailSection: View {
       Spacer()
       if let gmail = source as? GmailSource, gmail.signedIn {
         Menu {
-          Button("Sign out of \(gmail.email)") { gmail.signOut() }
+          // The bridge holds one sign-in for every app that uses it.
+          Button("Sign out of \(gmail.email) in PIM Bridge") { gmail.signOut() }
         } label: {
           Image(systemName: "ellipsis")
         }
@@ -160,28 +181,13 @@ struct MailSection: View {
   @ViewBuilder
   private var statusView: some View {
     switch source.status {
-    case .needsSetup:
-      notice("To read Gmail, save a Google OAuth client (Desktop app) as ~/.config/menu-widgets/google-oauth-client.json. The README has the steps.")
     case .needsSignIn:
       if let gmail = source as? GmailSource {
-        HStack {
-          Text(gmail.email).font(.system(size: 12)).foregroundStyle(.secondary)
-          Spacer()
-          Button("Sign in with Google") { gmail.startSignIn() }
-        }
-        .padding(.horizontal, 8)
+        GmailSignIn(source: gmail)
       }
     case .signingIn:
       if let gmail = source as? GmailSource {
-        HStack {
-          ProgressView().controlSize(.small)
-          Text("Finish signing in to \(gmail.email) in your browser.")
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-          Spacer()
-          Button("Cancel") { gmail.cancelSignIn() }
-        }
-        .padding(.horizontal, 8)
+        GmailSigningIn(source: gmail)
       }
     case .error(let msg):
       HStack(alignment: .top) {
@@ -213,6 +219,84 @@ struct MailSection: View {
   }
 }
 
+/// An account the bridge needs to sign in again (Google's test-mode
+/// sign-ins expire after a week): one click opens Google's page.
+struct GmailSignIn: View {
+  @ObservedObject var source: GmailSource
+
+  var body: some View {
+    HStack(alignment: .firstTextBaseline) {
+      VStack(alignment: .leading, spacing: 1) {
+        Text(source.email).font(.system(size: 12)).foregroundStyle(.secondary)
+        if let p = source.problem {
+          Text(p)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      Spacer()
+      Button("Sign in…") { source.signIn() }
+    }
+    .padding(.horizontal, 8)
+  }
+}
+
+struct GmailSigningIn: View {
+  @ObservedObject var source: GmailSource
+
+  var body: some View {
+    HStack {
+      ProgressView().controlSize(.small)
+      Text("Finish signing in to \(source.email) in your browser.")
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+      Spacer()
+      if let url = source.signInURL {
+        Button("Open Page") { NSWorkspace.shared.open(url) }
+          .help("Open Google's sign-in page again")
+      }
+    }
+    .padding(.horizontal, 8)
+  }
+}
+
+/// What's wrong with PIM Bridge as a whole, shown above the Gmail accounts:
+/// not running, refusing MenuWidgets, or Gmail not set up there.
+struct BridgeNotice: View {
+  @ObservedObject var hub: GmailHub
+
+  var body: some View {
+    switch hub.state {
+    case .failed(let f):
+      HStack(alignment: .top) {
+        Text(f.message)
+          .font(.system(size: 12))
+          .fixedSize(horizontal: false, vertical: true)
+        Spacer()
+        Button("Retry") { hub.refresh() }.controlSize(.small)
+      }
+      .padding(10)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.10)))
+    case .connecting where hub.sources.isEmpty:
+      Text("Asking PIM Bridge for your Gmail accounts…")
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+    case .ok where hub.problem != nil || hub.sources.isEmpty:
+      Text(hub.problem ?? "No Gmail accounts in PIM Bridge yet. Add one with its `gmail` command.")
+        .font(.system(size: 12))
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.10)))
+    default:
+      EmptyView()
+    }
+  }
+}
+
 struct MailRow: View {
   @ObservedObject var model: MailModel
   let item: MailItem
@@ -231,6 +315,13 @@ struct MailRow: View {
             .foregroundStyle(.secondary)
         }
         Spacer(minLength: 4)
+        if hot && model.canTrash(item) {
+          Button { model.trash(item) } label: {
+            Image(systemName: "trash").font(.system(size: 11))
+          }
+          .buttonStyle(.borderless)
+          .help("Move this conversation to the Trash (⌫)")
+        }
         Text(MailText.age(item.date, now: model.now))
           .font(.system(size: 11).monospacedDigit())
           .foregroundStyle(.secondary)

@@ -89,109 +89,120 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   #expect(HeyMail.watchSignal(line: "garbage") == .other)
 }
 
-// MARK: - Gmail
+// MARK: - Gmail (through PIM Bridge)
 
-@Test func gmailListURL() {
-  let u = GmailMail.listURL(primaryOnly: true).absoluteString
-  #expect(u.contains("labelIds=INBOX&labelIds=UNREAD&labelIds=CATEGORY_PERSONAL"))
-  #expect(!GmailMail.listURL(primaryOnly: false).absoluteString.contains("CATEGORY_PERSONAL"))
+@Test func gmailQuery() {
+  #expect(GmailMail.unreadQuery(primaryOnly: true) == "is:unread in:inbox category:primary")
+  #expect(GmailMail.unreadQuery(primaryOnly: false) == "is:unread in:inbox")
 }
 
 @Test func gmailWebURLs() {
-  #expect(GmailMail.webURL(email: "me@Example.com", threadID: "18f").absoluteString
-    == "https://mail.google.com/a/example.com/#inbox/18f")
+  #expect(GmailMail.webURL(email: "me@Example.com").absoluteString == "https://mail.google.com/a/example.com/#inbox")
   #expect(GmailMail.webURL(email: "someone@gmail.com").absoluteString
     == "https://mail.google.com/mail/?authuser=someone@gmail.com#inbox")
 }
 
-@Test func gmailThreadsFromMessages() throws {
-  let refs = try GmailMail.refs(listJSON: Data(#"{"messages":[{"id":"m2","threadId":"t1"},{"id":"m1","threadId":"t1"}],"resultSizeEstimate":2}"#.utf8))
-  #expect(refs == [.init(id: "m2", threadId: "t1"), .init(id: "m1", threadId: "t1")])
-  #expect(try GmailMail.refs(listJSON: Data(#"{"resultSizeEstimate":0}"#.utf8)).isEmpty)
+@Test func gmailAccounts() throws {
+  let a = try GmailMail.accounts(json: Data("""
+  {"accounts":[{"name":"Work","email":"me@example.com","status":"signed_in"},
+               {"name":"Side","email":"x@example.org","status":"needs_sign_in","problem":"Sign-in expired"},
+               {"email":"y@example.org","status":"something_new"}]}
+  """.utf8))
+  #expect(a.accounts == [
+    .init(name: "Work", email: "me@example.com", status: .signedIn),
+    .init(name: "Side", email: "x@example.org", status: .needsSignIn, problem: "Sign-in expired"),
+    .init(name: "y@example.org", email: "y@example.org", status: .needsSignIn),
+  ])
+  #expect(a.problem == nil)
+  #expect(try GmailMail.accounts(json: Data(#"{"accounts":[],"problem":"No OAuth client"}"#.utf8)).problem == "No OAuth client")
+}
 
-  func msg(_ id: String, _ ms: Int, from: String) throws -> GmailMail.Message {
-    try GmailMail.message(json: Data("""
-    {"id":"\(id)","threadId":"t1","snippet":"Hi &amp; bye","internalDate":"\(ms)",
-     "payload":{"headers":[{"name":"From","value":"\(from)"},{"name":"Subject","value":"Lunch"}]}}
-    """.utf8))
-  }
-  let a = try msg("m1", 1_000_000, from: "Bob <bob@x.com>")
-  let b = try msg("m2", 2_000_000, from: #"\"Ann\" <ann@x.com>"#)
-  #expect(a.date == Date(timeIntervalSince1970: 1000))
-  let items = GmailMail.items(email: "me@example.com", messages: [a, b])
+@Test func gmailThreadsFromSearch() throws {
+  let msgs = try GmailMail.messages(searchJSON: Data("""
+  {"account":"me@example.com","query":"is:unread in:inbox","estimated_total":2,"messages":[
+    {"id":"m1","thread_id":"t1","from":"Bob <bob@x.com>","to":"me@example.com","subject":"Lunch",
+     "snippet":"Hi &amp; bye","labels":["UNREAD","INBOX"],"unread":true,
+     "url":"https://mail.google.com/mail/u/me@example.com/#all/t1","date":"2026-10-16T08:01:09-04:00"},
+    {"id":"m2","thread_id":"t1","from":"\\"Ann\\" <ann@x.com>","to":"me@example.com","subject":"Re: Lunch",
+     "snippet":"Sure","labels":["UNREAD","INBOX"],"unread":true,
+     "url":"https://mail.google.com/mail/u/me@example.com/#all/t1","date":"2026-10-16T09:00:00-04:00"}]}
+  """.utf8))
+  #expect(msgs.count == 2)
+  #expect(msgs[0].date == ISO8601DateFormatter().date(from: "2026-10-16T12:01:09Z"))
+  let items = GmailMail.items(email: "Me@example.com", messages: msgs)
   #expect(items.count == 1)
   #expect(items[0].id == "gmail:me@example.com:t1")
   #expect(items[0].revision == "m2")
   #expect(items[0].sender == "Ann")
-  #expect(items[0].snippet == "Hi & bye")
+  #expect(items[0].subject == "Re: Lunch")
   #expect(items[0].unread == 2)
+  #expect(items[0].url.absoluteString == "https://mail.google.com/mail/u/me@example.com/#all/t1")
+  #expect(GmailMail.threadID(itemID: items[0].id, email: "me@example.com") == "t1")
+  #expect(GmailMail.threadID(itemID: "hey:1", email: "me@example.com") == nil)
+  #expect(try GmailMail.messages(searchJSON: Data(#"{"messages":[]}"#.utf8)).isEmpty)
 }
 
-@Test func gmailErrors() {
-  #expect(GmailMail.errorMessage(json: Data(#"{"error":{"code":403,"message":"Gmail API has not been used"}}"#.utf8))
-    == "Gmail API has not been used")
+// MARK: - PIM Bridge socket
+
+@Test func bridgeRequestIsOneLine() throws {
+  let d = PIMBridge.request(id: 7, tool: "search", arguments: ["account": "Work", "max": 100])
+  #expect(d.last == 0x0A)
+  #expect(d.dropLast().contains(0x0A) == false)
+  let obj = try JSONSerialization.jsonObject(with: d) as! [String: Any]
+  #expect(obj["jsonrpc"] as? String == "2.0")
+  #expect(obj["id"] as? Int == 7)
+  #expect(obj["method"] as? String == "tools/call")
+  let params = obj["params"] as! [String: Any]
+  #expect(params["name"] as? String == "search")
+  #expect((params["arguments"] as! [String: Any])["max"] as? Int == 100)
 }
 
-// MARK: - OAuth
-
-@Test func oauthClientFile() {
-  let installed = #"{"installed":{"client_id":"abc.apps.googleusercontent.com","client_secret":"s3","redirect_uris":["http://localhost"]}}"#
-  #expect(GoogleOAuth.client(json: Data(installed.utf8)) == .init(id: "abc.apps.googleusercontent.com", secret: "s3"))
-  #expect(GoogleOAuth.client(json: Data(#"{"client_id":"x"}"#.utf8)) == .init(id: "x", secret: ""))
-  #expect(GoogleOAuth.client(json: Data("{}".utf8)) == nil)
+@Test func bridgeReplies() {
+  let ok = PIMBridge.reply(Data(#"{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"{\"accounts\":[]}"}],"isError":false}}"#.utf8))
+  #expect(ok.id == 3)
+  #expect(ok.result == .success(Data(#"{"accounts":[]}"#.utf8)))
+  let toolError = PIMBridge.reply(Data(#"{"jsonrpc":"2.0","id":4,"result":{"content":[{"type":"text","text":"No account Foo"}],"isError":true}}"#.utf8))
+  #expect(toolError.result == .failure(.tool("No account Foo")))
+  let rpc = PIMBridge.reply(Data(#"{"jsonrpc":"2.0","id":5,"error":{"code":-32601,"message":"Unknown tool"}}"#.utf8))
+  #expect(rpc.result == .failure(.rpc("Unknown tool")))
+  #expect(PIMBridge.reply(Data("nope".utf8)).result == .failure(.malformed))
 }
 
-@Test func oauthPKCE() {
-  // RFC 7636 appendix B.
-  #expect(GoogleOAuth.challenge(verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
-    == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
-  let v = GoogleOAuth.makeVerifier()
-  #expect(v.count == 64)
-}
-
-@Test func oauthAuthURL() {
-  let u = GoogleOAuth.authURL(client: .init(id: "cid", secret: ""), redirect: "http://127.0.0.1:5000",
-                              verifier: "v", state: "st", loginHint: "me@example.org")
-  let q = Dictionary(uniqueKeysWithValues: URLComponents(url: u, resolvingAgainstBaseURL: false)!.queryItems!.map { ($0.name, $0.value!) })
-  #expect(q["redirect_uri"] == "http://127.0.0.1:5000")
-  #expect(q["scope"] == "https://www.googleapis.com/auth/gmail.metadata")
-  #expect(q["access_type"] == "offline")
-  #expect(q["login_hint"] == "me@example.org")
-  #expect(q["code_challenge_method"] == "S256")
-}
-
-@Test func oauthCallback() {
-  #expect(GoogleOAuth.callback(requestLine: "GET /?state=st&code=4/0Ab&scope=x HTTP/1.1") == .code("4/0Ab", state: "st"))
-  #expect(GoogleOAuth.callback(requestLine: "GET /?error=access_denied&state=st HTTP/1.1") == .error("access_denied"))
-  #expect(GoogleOAuth.callback(requestLine: "GET /favicon.ico HTTP/1.1") == .unrelated)
-}
-
-@Test func oauthFormBody() {
-  let body = String(decoding: GoogleOAuth.formBody([("code", "4/0A b+c"), ("x", "y")]), as: UTF8.self)
-  #expect(body == "code=4%2F0A%20b%2Bc&x=y")
-}
-
-@Test func oauthTokens() {
-  let now = Date(timeIntervalSince1970: 0)
-  let ok = GoogleOAuth.token(json: Data(#"{"access_token":"at","expires_in":3599,"refresh_token":"rt"}"#.utf8), now: now)
-  #expect(ok == .success(.init(access: "at", refresh: "rt", expires: Date(timeIntervalSince1970: 3539))))
-  let bad = GoogleOAuth.token(json: Data(#"{"error":"invalid_grant","error_description":"Token has been expired or revoked."}"#.utf8))
-  #expect(bad == .failure(.invalidGrant("Token has been expired or revoked.")))
+@Test func bridgeThreadMoves() throws {
+  let t = try PIMBridge.threadMove(json: Data("""
+  {"trashed":[{"thread_id":"t1","from":"Bob","subject":"Lunch","messages":2}],"failed":[{"thread_id":"t2","error":"Not found"}]}
+  """.utf8))
+  #expect(t.moved == ["t1"])
+  #expect(t.failed.map(\.id) == ["t2"] && t.failed.map(\.error) == ["Not found"])
+  let u = try PIMBridge.threadMove(json: Data(#"{"untrashed":[{"thread_id":"t1","inbox":true}],"failed":[]}"#.utf8))
+  #expect(u.moved == ["t1"] && u.failed.isEmpty)
 }
 
 // MARK: - config
 
 @Test func mailConfigDefaultsAndOverrides() throws {
   let c = try JSONDecoder().decode(WidgetsConfig.self, from: Data("""
-  {"mail": {"gmail": [{"name": "Work", "email": "me@example.com"}], "pollIntervalSec": 2}}
+  {"mail": {"gmail": true, "pollIntervalSec": 2}}
   """.utf8))
-  #expect(c.mail.gmail == [.init(name: "Work", email: "me@example.com")])
+  #expect(c.mail.gmail)
   #expect(c.mail.pollIntervalSec == 10)
   #expect(c.mail.hey && c.mail.primaryOnly && c.mail.notify)
   #expect(c.mail.sound == "default")
   let quiet = try JSONDecoder().decode(WidgetsConfig.self, from: Data(#"{"mail": {"sound": "Bottle"}}"#.utf8))
   #expect(quiet.mail.sound == "Bottle")
-  #expect(WidgetsConfig().mail.gmail.isEmpty)
+  #expect(!WidgetsConfig().mail.gmail)
+}
+
+/// Before PIM Bridge, `gmail` listed the accounts: a list with accounts
+/// turns Gmail on, an empty one leaves it off, and the rest still loads.
+@Test func mailConfigOldGmailList() throws {
+  func gmail(_ json: String) throws -> WidgetsConfig.MailSettings {
+    try JSONDecoder().decode(WidgetsConfig.self, from: Data(json.utf8)).mail
+  }
+  let old = try gmail(#"{"mail": {"gmail": [{"name": "Work", "email": "me@example.com"}], "primaryOnly": false}}"#)
+  #expect(old.gmail && !old.primaryOnly)
+  #expect(try !gmail(#"{"mail": {"gmail": []}}"#).gmail)
+  #expect(try !gmail(#"{"mail": {"gmail": "yes"}}"#).gmail)
 }
 
 @Test func widgetsCanBeTurnedOff() throws {

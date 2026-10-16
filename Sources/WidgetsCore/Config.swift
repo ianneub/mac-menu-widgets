@@ -82,20 +82,15 @@ public struct WidgetsConfig: Codable, Sendable {
   }
 
   public struct MailSettings: Codable, Sendable, Equatable {
-    public struct GmailAccount: Codable, Sendable, Equatable {
-      /// Shown in the panel and on banners ("Work").
-      public var name: String
-      public var email: String
-      public init(name: String, email: String) { self.name = name; self.email = email }
-    }
-
     public var enabled: Bool = true
     /// Watch the HEY Imbox through the `hey` CLI.
     public var hey: Bool = true
     /// The `hey` CLI: a path, or a name looked up on PATH and the usual
     /// install spots (launchd's PATH is short).
     public var heyCommand: String = "hey"
-    public var gmail: [GmailAccount] = []
+    /// Show the Gmail accounts signed in to PIM Bridge, which reads Gmail
+    /// for MenuWidgets.
+    public var gmail: Bool = false
     /// Gmail: only the Primary category, like HEY's Imbox.
     public var primaryOnly: Bool = true
     /// Seconds between Gmail checks (HEY pushes, so it isn't polled).
@@ -254,7 +249,12 @@ extension WidgetsConfig.MailSettings {
     enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? d.enabled
     hey = (try? c.decode(Bool.self, forKey: .hey)) ?? d.hey
     heyCommand = (try? c.decode(String.self, forKey: .heyCommand)) ?? d.heyCommand
-    gmail = (try? c.decode([GmailAccount].self, forKey: .gmail)) ?? d.gmail
+    // Before PIM Bridge, `gmail` listed the accounts; a list with any
+    // accounts in it now means "on".
+    struct AnyValue: Decodable {}
+    gmail = (try? c.decode(Bool.self, forKey: .gmail))
+      ?? (try? c.decode([AnyValue].self, forKey: .gmail)).map { !$0.isEmpty }
+      ?? d.gmail
     primaryOnly = (try? c.decode(Bool.self, forKey: .primaryOnly)) ?? d.primaryOnly
     pollIntervalSec = max(10, (try? c.decode(Int.self, forKey: .pollIntervalSec)) ?? d.pollIntervalSec)
     notify = (try? c.decode(Bool.self, forKey: .notify)) ?? d.notify

@@ -26,11 +26,13 @@
   <a href="https://github.com/ianneub/mac-menu-widgets">github.com/ianneub/mac-menu-widgets</a>.</p>
 
   <h2>Gmail</h2>
-  <p>The Mail widget can sign in to Google to show how many unread emails are in your
-  Gmail inbox, with each one's sender, subject and a short snippet, and to post a
-  notification when one arrives. It asks only for read-only access to email metadata
-  (<code>gmail.metadata</code>). It can't read message bodies or attachments, and it
-  can't send, change or delete anything.</p>
+  <p>The Mail widget can show how many unread emails are in your Gmail inbox, with
+  each one's sender, subject and a short snippet, post a notification when one
+  arrives, and move a conversation to the Trash when you click its trash can.
+  MenuWidgets doesn't sign in to Google itself: it asks
+  <a href="https://github.com/ianneub/pim-bridge">PIM Bridge</a>, another app on your
+  Mac that holds the Google sign-in, over a local connection that only a genuine copy
+  of MenuWidgets is allowed to use.</p>
 
   <p>See the <a href="privacy.html">privacy policy</a>.</p>
 
