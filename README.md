@@ -58,9 +58,13 @@ run commands from global keyboard shortcuts, optionally only in certain apps
   open it in your browser. A new email gets a notification banner (click it to
   open the email), which goes away once you read or archive it elsewhere. Mail
   already waiting at launch gets none, and more than three at once get one
-  summary banner. Hover a Gmail conversation (or move to it with the arrow
-  keys) and click its trash can, or press ⌫, to move the whole conversation to
-  Gmail's Trash; **Undo** puts it back for a few seconds after. HEY is read
+  summary banner. Hover a conversation (or move to it with the arrow keys) and
+  click its trash can, or press ⌫, to move the whole conversation to the Trash.
+  Gmail's goes at once, and **Undo** puts it back for a few seconds after.
+  HEY's CLI can't take a thread back out of the Trash, so a HEY conversation
+  asks first (**Trash?**: click or press ⌫ again), and afterwards **Open in
+  HEY** opens it there to move it back. A HEY bundle row has no trash can,
+  since it stands for a sender's stream rather than one thread. HEY is read
   through the [`hey` CLI](https://github.com/basecamp/hey-cli), whose `watch`
   pushes changes as they happen; Gmail is read through
   [PIM Bridge](https://github.com/ianneub/pim-bridge) every 30 seconds (see

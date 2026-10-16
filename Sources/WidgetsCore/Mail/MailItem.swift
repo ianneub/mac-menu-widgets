@@ -18,11 +18,16 @@ public struct MailItem: Equatable, Sendable, Identifiable {
   public var url: URL
   /// Unread messages in the thread (Gmail); 1 for HEY.
   public var unread: Int
+  /// What its inbox moves to the Trash: the Gmail thread id, or HEY's box
+  /// item id. nil when it can't be trashed (a HEY bundle stands for a
+  /// sender's stream, not one thread).
+  public var trashID: String?
 
   public init(id: String, account: String, revision: String, sender: String, subject: String,
-              snippet: String, date: Date, url: URL, unread: Int = 1) {
+              snippet: String, date: Date, url: URL, unread: Int = 1, trashID: String? = nil) {
     self.id = id; self.account = account; self.revision = revision; self.sender = sender
     self.subject = subject; self.snippet = snippet; self.date = date; self.url = url; self.unread = unread
+    self.trashID = trashID
   }
 }
 

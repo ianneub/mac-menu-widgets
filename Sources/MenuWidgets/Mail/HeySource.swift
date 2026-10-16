@@ -76,6 +76,26 @@ final class HeySource: MailSource {
     }
   }
 
+  // MARK: trash
+
+  // HEY's CLI can trash a thread but has no way back out of the Trash (it
+  // isn't a box, so `hey move` finds nothing to move), so there's no Undo.
+  override var canTrash: Bool { true }
+
+  override func moveToTrash(_ ids: [String]) async throws {
+    guard let path = Command.resolve(command) else {
+      throw ActionError(message: "The hey CLI wasn't found (set mail.heyCommand to its path).")
+    }
+    let out = try await Command.run(path, ["trash"] + ids + ["--json"])
+    let reply = (try? JSONSerialization.jsonObject(with: out.stdout)) as? [String: Any]
+    guard out.status == 0, reply?["ok"] as? Bool == true else {
+      let msg = String(decoding: out.stderr.isEmpty ? out.stdout : out.stderr, as: UTF8.self)
+      throw ActionError(message: Self.firstLine(msg, fallback: "hey trash exited with \(out.status)"))
+    }
+    // `hey watch` reports the change too; the reread confirms it's gone.
+    refresh()
+  }
+
   // MARK: watch
 
   private func startWatch() {

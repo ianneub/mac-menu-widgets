@@ -102,16 +102,10 @@ public enum GmailMail {
         id: itemID(account: account, threadID: newest.threadID), account: account, revision: newest.id,
         sender: MailText.displayName(fromHeader: newest.from), subject: subject,
         snippet: MailText.cleanSnippet(newest.snippet), date: newest.date,
-        url: newest.url, unread: msgs.count)
+        url: newest.url, unread: msgs.count, trashID: newest.threadID)
     }
     .sorted { $0.date > $1.date }
   }
 
   static func itemID(account: String, threadID: String) -> String { "\(account):\(threadID)" }
-
-  /// The Gmail thread an item stands for.
-  public static func threadID(itemID: String, email: String) -> String? {
-    let prefix = accountID(email) + ":"
-    return itemID.hasPrefix(prefix) ? String(itemID.dropFirst(prefix.count)) : nil
-  }
 }

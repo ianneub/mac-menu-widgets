@@ -90,7 +90,7 @@ final class GmailHub: ObservableObject {
         let data = try await client.call("search", [
           "account": s.email, "query": GmailMail.unreadQuery(primaryOnly: primaryOnly), "max": 100,
         ])
-        s.publishFromBridge(GmailMail.items(email: s.email, messages: try GmailMail.messages(searchJSON: data)))
+        s.publish(GmailMail.items(email: s.email, messages: try GmailMail.messages(searchJSON: data)))
       } catch {
         let f = Self.failure(error)
         if f == .notRunning || f == .refused { state = .failed(f); return }
@@ -168,10 +168,6 @@ final class GmailSource: MailSource {
   /// The Google page for a sign-in under way, to open it again.
   @Published var signInURL: URL?
   private weak var hub: GmailHub?
-  /// Threads trashed from the panel, kept out of the list until the
-  /// bridge's search stops returning them (one already under way may not).
-  private var trashed: Set<String> = []
-
   init(account: GmailMail.Account, hub: GmailHub) {
     email = account.email.lowercased()
     self.account = account
@@ -200,43 +196,23 @@ final class GmailSource: MailSource {
     }
   }
 
-  func publishFromBridge(_ items: [MailItem]) {
-    let ids = Set(items.map(\.id))
-    trashed.formIntersection(ids)
-    publish(items.filter { !trashed.contains($0.id) })
-  }
-
   override func refresh() { hub?.refresh() }
 
   func signIn() { hub?.signIn(self) }
   func signOut() { hub?.signOut(self) }
 
-  /// Trashes an item's thread: off the list at once, then over the socket.
-  /// On failure it comes back with the error shown.
-  func trash(_ item: MailItem) async -> Bool {
-    guard let hub, let thread = GmailMail.threadID(itemID: item.id, email: email) else { return false }
-    trashed.insert(item.id)
-    remove(ids: [item.id])
-    do {
-      try await hub.move(threads: [thread], in: self, undo: false)
-      return true
-    } catch {
-      trashed.remove(item.id)
-      restore([item])
-      status = .error(GmailHub.failure(error).message)
-      return false
-    }
-  }
+  override var canTrash: Bool { signedIn }
+  override var canUndoTrash: Bool { true }
 
-  func untrash(_ item: MailItem) async {
-    guard let hub, let thread = GmailMail.threadID(itemID: item.id, email: email) else { return }
+  override func moveToTrash(_ ids: [String]) async throws { try await move(ids, undo: false) }
+  override func moveOutOfTrash(_ ids: [String]) async throws { try await move(ids, undo: true) }
+
+  private func move(_ threads: [String], undo: Bool) async throws {
+    guard let hub else { throw ActionError(message: "Gmail is turned off.") }
     do {
-      try await hub.move(threads: [thread], in: self, undo: true)
-      trashed.remove(item.id)
-      restore([item])
+      try await hub.move(threads: threads, in: self, undo: undo)
     } catch {
-      status = .error(GmailHub.failure(error).message)
+      throw ActionError(message: GmailHub.failure(error).message)
     }
-    hub.refresh()
   }
 }

@@ -17,7 +17,10 @@ public enum HeyMail {
       return MailItem(
         id: "hey:\(thread)", account: accountID, revision: p.active_at ?? "",
         sender: sender, subject: p.name ?? "(no subject)", snippet: MailText.cleanSnippet(p.summary ?? ""),
-        date: date, url: url)
+        date: date, url: url,
+        // `hey trash` takes the box item id. A bundle row "trashes" with
+        // success and nothing moves, so it gets no trash button.
+        trashID: p.kind == nil || p.kind == "topic" ? String(p.id) : nil)
     }
   }
 
@@ -56,6 +59,7 @@ public enum HeyMail {
   private struct Posting: Decodable {
     let id: Int
     let topic_id: Int?
+    let kind: String?
     let seen: Bool?
     let name: String?
     let summary: String?

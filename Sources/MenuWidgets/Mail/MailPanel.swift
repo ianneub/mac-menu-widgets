@@ -4,7 +4,8 @@ import WidgetsCore
 
 /// The popup: a hero with the unread total, then one section per inbox
 /// with its unread threads, newest first. Click a row (or Return on it) to
-/// open the email, or its trash can to move a Gmail thread to the Trash);
+/// open the email, or its trash can to move the thread to the Trash: at
+/// once with Undo for Gmail, on a second click for HEY, which has no Undo);
 /// click an inbox's name to open the inbox.
 /// Keys: ↑/↓ move, Return opens, ⌫ trashes, r refreshes, Esc closes.
 struct MailPanel: View {
@@ -90,11 +91,19 @@ struct MailPanel: View {
   private func undoBar(_ t: MailModel.Trashed) -> some View {
     HStack(spacing: 8) {
       Image(systemName: "trash").foregroundStyle(.secondary)
-      Text("Moved \u{201C}\(t.item.subject)\u{201D} to the Trash")
+      Text(t.undoable ? "Moved \u{201C}\(t.item.subject)\u{201D} to the Trash"
+                      : "Moved \u{201C}\(t.item.subject)\u{201D} to \(t.source.name)\u{2019}s Trash")
         .font(.system(size: 12))
         .lineLimit(1)
       Spacer(minLength: 4)
-      Button("Undo") { model.undoTrash() }.controlSize(.small)
+      if t.undoable {
+        Button("Undo") { model.undoTrash() }.controlSize(.small)
+      } else {
+        // HEY can't move it back from here; its page in HEY can.
+        Button("Open in \(t.source.name)") { model.open(t.item.url) }
+          .controlSize(.small)
+          .help("Move it back to the Imbox from there")
+      }
     }
     .padding(.horizontal, 10)
     .padding(.vertical, 6)
@@ -103,7 +112,7 @@ struct MailPanel: View {
 
   private var footer: some View {
     let last = model.sources.compactMap(\.lastFetch).max()
-    let keys = model.gmail == nil ? "↑↓ move  ·  return open  ·  r refresh" : "↑↓ move  ·  return open  ·  ⌫ trash  ·  r refresh"
+    let keys = model.trashable ? "↑↓ move  ·  return open  ·  ⌫ trash  ·  r refresh" : "↑↓ move  ·  return open  ·  r refresh"
     return Text(last.map { "Updated \($0.formatted(date: .omitted, time: .shortened))  ·  \(keys)" } ?? keys)
       .font(.system(size: 10))
       .foregroundStyle(.tertiary)
@@ -315,7 +324,15 @@ struct MailRow: View {
             .foregroundStyle(.secondary)
         }
         Spacer(minLength: 4)
-        if hot && model.canTrash(item) {
+        if model.confirmingTrash == item.id {
+          Button { model.trash(item) } label: {
+            Label("Trash?", systemImage: "trash.fill")
+              .font(.system(size: 11, weight: .semibold))
+              .foregroundStyle(Color.red)
+          }
+          .buttonStyle(.borderless)
+          .help("Click again (or ⌫) to move it to the Trash. It can't be undone from here.")
+        } else if hot && model.canTrash(item) {
           Button { model.trash(item) } label: {
             Image(systemName: "trash").font(.system(size: 11))
           }

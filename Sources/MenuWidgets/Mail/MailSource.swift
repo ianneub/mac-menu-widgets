@@ -34,6 +34,12 @@ class MailSource: ObservableObject, Identifiable {
 
   /// Called after each successful read with the items before and after.
   var onUpdate: (MailSource, _ previous: [MailItem]?, _ previousFetch: Date?) -> Void = { _, _, _ in }
+  /// Trashed from the panel: kept off the list until a read stops
+  /// returning them (one already under way may not know yet).
+  private var hidden: Set<String> = []
+
+  /// A failed action, in words for the panel.
+  struct ActionError: Error { let message: String }
 
   init(id: String, name: String, inboxURL: URL) {
     self.id = id
@@ -43,7 +49,9 @@ class MailSource: ObservableObject, Identifiable {
 
   var unread: Int { items?.count ?? 0 }
 
-  func publish(_ new: [MailItem]) {
+  func publish(_ fresh: [MailItem]) {
+    hidden.formIntersection(fresh.map(\.id))
+    let new = fresh.filter { !hidden.contains($0.id) }
     let before = items
     let beforeFetch = lastFetch
     items = new
@@ -55,6 +63,7 @@ class MailSource: ObservableObject, Identifiable {
   /// Takes items off the list now (trashed from the panel) without
   /// waiting for the next read; their banners are withdrawn.
   func remove(ids: Set<String>) {
+    hidden.formUnion(ids)
     guard let before = items else { return }
     items = before.filter { !ids.contains($0.id) }
     onUpdate(self, before, lastFetch)
@@ -62,9 +71,46 @@ class MailSource: ObservableObject, Identifiable {
 
   /// Puts items back (an undone trash) quietly: they aren't news.
   func restore(_ back: [MailItem]) {
+    hidden.subtract(back.map(\.id))
     guard let current = items else { return }
     let have = Set(current.map(\.id))
     items = current + back.filter { !have.contains($0.id) }
+  }
+
+  // MARK: trash
+
+  /// Whether this inbox can trash an item, and take it back out.
+  var canTrash: Bool { false }
+  var canUndoTrash: Bool { false }
+
+  /// Subclasses do the moving; they throw ActionError.
+  func moveToTrash(_ ids: [String]) async throws { throw ActionError(message: "This inbox can't trash mail.") }
+  func moveOutOfTrash(_ ids: [String]) async throws { throw ActionError(message: "This inbox can't undo a trash.") }
+
+  /// Trashes an item: off the list at once, then in the service. On
+  /// failure it comes back with the error shown.
+  func trash(_ item: MailItem) async -> Bool {
+    guard canTrash, let key = item.trashID else { return false }
+    remove(ids: [item.id])
+    do {
+      try await moveToTrash([key])
+      return true
+    } catch {
+      restore([item])
+      status = .error((error as? ActionError)?.message ?? error.localizedDescription)
+      return false
+    }
+  }
+
+  func untrash(_ item: MailItem) async {
+    guard canUndoTrash, let key = item.trashID else { return }
+    do {
+      try await moveOutOfTrash([key])
+      restore([item])
+    } catch {
+      status = .error((error as? ActionError)?.message ?? error.localizedDescription)
+    }
+    refresh()
   }
 
   /// Forget the list (signed out): the next read is a first look again, so

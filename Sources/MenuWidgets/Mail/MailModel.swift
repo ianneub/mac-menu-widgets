@@ -15,6 +15,8 @@ final class MailModel: ObservableObject {
   @Published private(set) var gmail: GmailHub?
   /// The thread just trashed from the panel, for Undo.
   @Published private(set) var trashed: Trashed?
+  /// The row whose trash button is asking "Trash?" (an inbox with no Undo).
+  @Published private(set) var confirmingTrash: String?
   @Published private(set) var settings: WidgetsConfig.MailSettings
   @Published private(set) var now = Date()
   /// The panel content's height, which sizes its scroll view.
@@ -28,6 +30,7 @@ final class MailModel: ObservableObject {
   private var ticker: Timer?
   private var hey: HeySource?
   private var trashedTimer: Timer?
+  private var confirmTimer: Timer?
   private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
   init(config: ConfigStore) {
@@ -123,6 +126,7 @@ final class MailModel: ObservableObject {
     sourceWatch = []
     sources = []
     trashedTimer?.invalidate()
+    confirmTimer?.invalidate()
     ticker?.invalidate()
     ticker = nil
     for (center, o) in observers { center.removeObserver(o) }
@@ -160,16 +164,38 @@ final class MailModel: ObservableObject {
 
   struct Trashed {
     let item: MailItem
-    let source: GmailSource
+    let source: MailSource
+    /// Gmail can take it back out; HEY can't, so the bar links to it.
+    let undoable: Bool
   }
 
-  /// Trashes the row's thread (Gmail only) and offers Undo for a while.
+  private func source(of item: MailItem) -> MailSource? { sources.first { $0.id == item.account } }
+
+  func canTrash(_ item: MailItem) -> Bool {
+    item.trashID != nil && source(of: item)?.canTrash == true
+  }
+
+  /// Trashes the row's thread. Where the trash can be undone (Gmail) it
+  /// goes at once, with Undo for a while after; where it can't (HEY) the
+  /// first press asks, and a second within a few seconds trashes.
   func trash(_ item: MailItem) {
-    guard let s = sources.first(where: { $0.id == item.account }) as? GmailSource else { return }
+    guard canTrash(item), let s = source(of: item) else { return }
+    if !s.canUndoTrash && confirmingTrash != item.id {
+      confirmingTrash = item.id
+      confirmTimer?.invalidate()
+      let t = Timer(timeInterval: 4, repeats: false) { [weak self] _ in
+        MainActor.assumeIsolated { self?.confirmingTrash = nil }
+      }
+      RunLoop.main.add(t, forMode: .common)
+      confirmTimer = t
+      return
+    }
+    confirmingTrash = nil
+    confirmTimer?.invalidate()
     if let c = cursor, c >= rows.count - 1 { cursor = rows.count > 1 ? rows.count - 2 : nil }
     Task { [weak self] in
       guard await s.trash(item), let self else { return }
-      trashed = Trashed(item: item, source: s)
+      trashed = Trashed(item: item, source: s, undoable: s.canUndoTrash)
       trashedTimer?.invalidate()
       let t = Timer(timeInterval: 8, repeats: false) { [weak self] _ in
         MainActor.assumeIsolated { self?.trashed = nil }
@@ -180,7 +206,7 @@ final class MailModel: ObservableObject {
   }
 
   func undoTrash() {
-    guard let t = trashed else { return }
+    guard let t = trashed, t.undoable else { return }
     trashed = nil
     trashedTimer?.invalidate()
     Task { await t.source.untrash(t.item) }
@@ -191,7 +217,8 @@ final class MailModel: ObservableObject {
     trash(rows[c])
   }
 
-  func canTrash(_ item: MailItem) -> Bool { item.account.hasPrefix("gmail:") }
+  /// Any inbox here can trash (for the footer's key hint).
+  var trashable: Bool { sources.contains { $0.canTrash } }
 
   func open(_ url: URL) {
     NSWorkspace.shared.open(url)
@@ -212,6 +239,7 @@ final class MailModel: ObservableObject {
   func popupOpened() {
     now = Date()
     cursor = nil
+    confirmingTrash = nil
     // Gmail is polled; catch up now if the last look is more than a few seconds old.
     if let gmail, gmail.lastFetch.map({ Date().timeIntervalSince($0) > 10 }) ?? true { gmail.refresh() }
   }

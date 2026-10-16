@@ -68,11 +68,14 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
      "app_url": "https://app.hey.com/topics/101", "creator": {"name": "Becca"}},
     {"id": 12, "topic_id": 102, "name": "Plan", "alternative_sender_name": "Fidelity", "creator": {"name": "Ian"},
      "seen": false, "active_at": "2026-10-08T18:00:00.5Z", "app_url": "https://app.hey.com/topics/102"},
-    {"id": 13, "topic_id": 103, "name": "Old", "seen": true, "active_at": "2026-10-01T00:00:00Z"}
+    {"id": 13, "topic_id": 103, "name": "Old", "seen": true, "active_at": "2026-10-01T00:00:00Z"},
+    {"id": 14, "topic_id": 104, "kind": "bundle", "name": "Receipts", "active_at": "2026-10-08T17:00:00Z"}
   ]}}
   """
   let items = try HeyMail.unseen(boxJSON: Data(json.utf8))
-  #expect(items.map(\.id) == ["hey:101", "hey:102"])
+  #expect(items.map(\.id) == ["hey:101", "hey:102", "hey:104"])
+  // `hey trash` takes the box item id; a bundle can't be trashed.
+  #expect(items.map(\.trashID) == ["11", "12", nil])
   #expect(items[0].sender == "Becca")
   #expect(items[0].snippet == "Milk & eggs")
   #expect(items[0].revision == "2026-10-08T19:05:41Z")
@@ -137,8 +140,7 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   #expect(items[0].subject == "Re: Lunch")
   #expect(items[0].unread == 2)
   #expect(items[0].url.absoluteString == "https://mail.google.com/mail/u/me@example.com/#all/t1")
-  #expect(GmailMail.threadID(itemID: items[0].id, email: "me@example.com") == "t1")
-  #expect(GmailMail.threadID(itemID: "hey:1", email: "me@example.com") == nil)
+  #expect(items[0].trashID == "t1")
   #expect(try GmailMail.messages(searchJSON: Data(#"{"messages":[]}"#.utf8)).isEmpty)
 }
 
