@@ -341,6 +341,13 @@ extension StatusPanel: NSStatusItemExpandedInterfaceDelegate {
 /// The item's length follows the image's width. The menu bar already spaces
 /// items apart, so only a point a side, which keeps the open highlight off
 /// the text.
+///
+/// Setting the image makes AppKit snapshot the button for the item's copies
+/// on other screens, and it sets the button's appearance to do so, which
+/// fires the appearance observer. Reacting to that by redrawing looped
+/// forever (two thirds of a core, plus MenuBarAgent redrawing the copies).
+/// So the appearance is read on the next pass, after the snapshot has put
+/// it back, and an image with the same pixels as the last isn't set again.
 @MainActor
 private final class LabelImage {
   private weak var item: NSStatusItem?
@@ -349,6 +356,7 @@ private final class LabelImage {
   private var changes: [AnyCancellable] = []
   private var appearanceObservation: NSKeyValueObservation?
   private var renderPending = false
+  private var lastPixels: [Data] = []
 
   init(content: AnyView, item: NSStatusItem, button: NSStatusBarButton) {
     self.item = item
@@ -363,11 +371,8 @@ private final class LabelImage {
     for renderer in renderers {
       changes.append(renderer.objectWillChange.sink { [weak self] in self?.setNeedsRender() })
     }
-    appearanceObservation = button.observe(\.effectiveAppearance, options: [.initial]) { [weak self] button, _ in
-      MainActor.assumeIsolated {
-        let dark = button.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        self?.appearance.colorScheme = dark ? .dark : .light
-      }
+    appearanceObservation = button.observe(\.effectiveAppearance) { [weak self] _, _ in
+      MainActor.assumeIsolated { self?.setNeedsRender() }
     }
     render()
   }
@@ -381,9 +386,19 @@ private final class LabelImage {
   }
 
   private func render() {
+    guard let item, let button = item.button else {
+      renderPending = false
+      return
+    }
+    // Still pending, so the renderers' objectWillChange doesn't queue
+    // another pass.
+    let dark = button.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    let scheme: ColorScheme = dark ? .dark : .light
+    if appearance.colorScheme != scheme { appearance.colorScheme = scheme }
     renderPending = false
-    guard let item, let button = item.button else { return }
+
     var image: NSImage?
+    var pixels: [Data] = []
     for renderer in renderers {
       guard let cg = renderer.cgImage else { continue }
       let size = NSSize(width: CGFloat(cg.width) / renderer.scale, height: CGFloat(cg.height) / renderer.scale)
@@ -391,7 +406,11 @@ private final class LabelImage {
       rep.size = size
       if image == nil { image = NSImage(size: size) }
       image?.addRepresentation(rep)
+      pixels.append((cg.dataProvider?.data as Data?) ?? Data())
+      pixels.append(withUnsafeBytes(of: (cg.width, cg.height)) { Data($0) })
     }
+    guard pixels != lastPixels || button.image == nil else { return }
+    lastPixels = pixels
     button.image = image
     if let image { item.length = ceil(image.size.width) + 2 }
   }
