@@ -46,7 +46,7 @@ final class StatusPanel: NSObject {
 
     // Label: SwiftUI drawn into the status button's image (see LabelImage).
     if let button = statusItem.button {
-      labelImage = LabelImage(content: AnyView(widget.label()), item: statusItem, button: button)
+      labelImage = LabelImage(id: widget.id, content: AnyView(widget.label()), item: statusItem, button: button)
       if #available(macOS 27, *) {
         // The menu bar opens and closes the popup (see the delegate below).
         statusItem.expandedInterfaceDelegate = self
@@ -348,8 +348,11 @@ extension StatusPanel: NSStatusItemExpandedInterfaceDelegate {
 /// forever (two thirds of a core, plus MenuBarAgent redrawing the copies).
 /// So the appearance is read on the next pass, after the snapshot has put
 /// it back, and an image with the same pixels as the last isn't set again.
+/// A label that still changes more than a couple of times a second is
+/// logged, in case another loop like that creeps in.
 @MainActor
 private final class LabelImage {
+  private let id: String
   private weak var item: NSStatusItem?
   private let appearance = LabelAppearance()
   private let renderers: [ImageRenderer<AnyView>]
@@ -357,8 +360,12 @@ private final class LabelImage {
   private var appearanceObservation: NSKeyValueObservation?
   private var renderPending = false
   private var lastPixels: [Data] = []
+  private var burstStart = Date.distantPast
+  private var burstCount = 0
+  private var lastWarning = Date.distantPast
 
-  init(content: AnyView, item: NSStatusItem, button: NSStatusBarButton) {
+  init(id: String, content: AnyView, item: NSStatusItem, button: NSStatusBarButton) {
+    self.id = id
     self.item = item
     button.imagePosition = .imageOnly
     button.imageScaling = .scaleNone
@@ -413,6 +420,21 @@ private final class LabelImage {
     lastPixels = pixels
     button.image = image
     if let image { item.length = ceil(image.size.width) + 2 }
+    noteImageChange()
+  }
+
+  /// Logs (at most once a minute) when the image changed more than 20 times
+  /// in 10 seconds. Each change redraws the item on every screen's menu bar.
+  private func noteImageChange() {
+    let now = Date()
+    if now.timeIntervalSince(burstStart) > 10 {
+      burstStart = now
+      burstCount = 0
+    }
+    burstCount += 1
+    guard burstCount > 20, now.timeIntervalSince(lastWarning) > 60 else { return }
+    lastWarning = now
+    NSLog("labels: \(id) changed its image \(burstCount) times in 10 seconds")
   }
 }
 

@@ -13,6 +13,7 @@ scripts/test.sh --filter MailTests     # one test file
 swift build                            # debug build
 scripts/build-app.sh                   # release build → build/MenuWidgets.app (ad-hoc signed)
 scripts/install.sh                     # build, copy to ~/Applications, (re)start under launchd
+sample $(pgrep -x MenuWidgets) 10      # profile the installed app (lldb can't attach: hardened runtime)
 swift scripts/make-icon.swift Assets/AppIcon.png   # redraw the app icon
 ```
 
@@ -44,6 +45,7 @@ Both use Swift 5 language mode under the Swift 6 toolchain. Source folders mirro
 ### App shell (`Sources/MenuWidgets/Shell/`)
 - `MenuWidget` protocol (`Widget.swift`): each widget provides an `id`, a menu-bar `label()`, a `panel(host:)` view, and optional lifecycle hooks (`popupWillOpen`, `popupDidClose`, `handleEscape`, `shutdown`). `shutdown()` must stop timers, watchers, and child processes, because a widget disabled in config is torn down live.
 - `StatusPanel` owns one `NSStatusItem`, its borderless popup, and an optional side pane floating to the left of the popup for hover detail. Widgets drive this through `PanelHost` (`showSidePane`, `hideSidePane`, `close`).
+- Labels are drawn into the status button's image by `LabelImage` (`StatusPanel.swift`). Any `objectWillChange` from an object a label observes re-renders it at 1x and 2x, and a changed image makes AppKit re-snapshot the item for every screen's menu bar, which costs CPU in MenuBarAgent and WindowServer too. Don't react right away to the button's own state (appearance, frame) there: AppKit changes it while snapshotting, and reacting to that once looped at ~90% CPU. Idle, the app should sit near 0% CPU; a label changing too often logs `labels: <id> changed its image …`.
 - `WidgetRegistry.all` lists every widget. Status items are created in that order and placed right to left. To add a widget, add an entry there plus an `enabled` setting in config.
 - `AppDelegate` subscribes to `ConfigStore.shared.$config` and creates or removes widgets as their `enabled` flags change. It also owns `HotkeyCenter`, which registers the config's `hotkeys` through Carbon's RegisterEventHotKey (no permission needed) and runs the command. A hotkey with no `apps` is always registered; one with `apps` is registered only while one of those apps is frontmost, so in other apps the key works as usual. SIGTERM (from launchd) is routed through `NSApp.terminate` so widgets can kill child processes such as `hey watch`. It also installs a hidden Edit menu, without which ⌘C/⌘V/⌘Z don't reach text fields in an accessory app's popups.
 
