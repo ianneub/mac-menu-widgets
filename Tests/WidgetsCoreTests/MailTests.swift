@@ -103,6 +103,8 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   #expect(GmailMail.webURL(email: "me@Example.com").absoluteString == "https://mail.google.com/a/example.com/#inbox")
   #expect(GmailMail.webURL(email: "someone@gmail.com").absoluteString
     == "https://mail.google.com/mail/?authuser=someone@gmail.com#inbox")
+  #expect(GmailMail.webURL(email: "me@example.com", threadID: "t1").absoluteString
+    == "https://mail.google.com/a/example.com/#inbox/t1")
 }
 
 @Test func gmailAccounts() throws {
@@ -139,7 +141,8 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   #expect(items[0].sender == "Ann")
   #expect(items[0].subject == "Re: Lunch")
   #expect(items[0].unread == 2)
-  #expect(items[0].url.absoluteString == "https://mail.google.com/mail/u/me@example.com/#all/t1")
+  // Not the bridge's `/mail/u/<email>/` link, which 404s for Workspace accounts.
+  #expect(items[0].url.absoluteString == "https://mail.google.com/a/example.com/#inbox/t1")
   #expect(items[0].trashID == "t1")
   #expect(try GmailMail.messages(searchJSON: Data(#"{"messages":[]}"#.utf8)).isEmpty)
 }

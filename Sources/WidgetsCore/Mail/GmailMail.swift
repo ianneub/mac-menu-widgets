@@ -11,15 +11,17 @@ public enum GmailMail {
     primaryOnly ? "is:unread in:inbox category:primary" : "is:unread in:inbox"
   }
 
-  /// Opens an account's inbox in Gmail. Workspace accounts go by domain
-  /// (`/a/<domain>/`), which picks the right signed-in account whatever its
-  /// `u/N` index is.
-  public static func webURL(email: String) -> URL {
+  /// Opens an account's inbox, or one thread in it, in Gmail. Workspace
+  /// accounts go by domain (`/a/<domain>/`), which picks the right signed-in
+  /// account whatever its `u/N` index is. (The bridge's own links use
+  /// `/mail/u/<email>/`, which Gmail answers with a 404 for Workspace
+  /// accounts.)
+  public static func webURL(email: String, threadID: String? = nil) -> URL {
     let domain = email.split(separator: "@").last.map { String($0).lowercased() } ?? ""
     let base = ["gmail.com", "googlemail.com"].contains(domain) || domain.isEmpty
       ? "https://mail.google.com/mail/?authuser=" + (email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email)
       : "https://mail.google.com/a/\(domain)/"
-    return URL(string: base + "#inbox")!
+    return URL(string: base + (threadID.map { "#inbox/" + $0 } ?? "#inbox"))!
   }
 
   public struct Account: Decodable, Equatable, Sendable {
@@ -63,11 +65,9 @@ public enum GmailMail {
     public var subject: String
     public var snippet: String
     public var date: Date
-    /// Opens the thread in Gmail.
-    public var url: URL
-    public init(id: String, threadID: String, from: String, subject: String, snippet: String, date: Date, url: URL) {
+    public init(id: String, threadID: String, from: String, subject: String, snippet: String, date: Date) {
       self.id = id; self.threadID = threadID; self.from = from; self.subject = subject
-      self.snippet = snippet; self.date = date; self.url = url
+      self.snippet = snippet; self.date = date
     }
   }
 
@@ -80,14 +80,12 @@ public enum GmailMail {
       let subject: String?
       let snippet: String?
       let date: String?
-      let url: String?
     }
     struct Reply: Decodable { let messages: [Raw]? }
     let iso = ISO8601DateFormatter()
     return try JSONDecoder().decode(Reply.self, from: data).messages?.map { r in
       Message(id: r.id, threadID: r.thread_id, from: r.from ?? "", subject: r.subject ?? "",
-              snippet: r.snippet ?? "", date: r.date.flatMap(iso.date(from:)) ?? .distantPast,
-              url: r.url.flatMap(URL.init(string:)) ?? URL(string: "https://mail.google.com/")!)
+              snippet: r.snippet ?? "", date: r.date.flatMap(iso.date(from:)) ?? .distantPast)
     } ?? []
   }
 
@@ -102,7 +100,7 @@ public enum GmailMail {
         id: itemID(account: account, threadID: newest.threadID), account: account, revision: newest.id,
         sender: MailText.displayName(fromHeader: newest.from), subject: subject,
         snippet: MailText.cleanSnippet(newest.snippet), date: newest.date,
-        url: newest.url, unread: msgs.count, trashID: newest.threadID)
+        url: webURL(email: email, threadID: newest.threadID), unread: msgs.count, trashID: newest.threadID)
     }
     .sorted { $0.date > $1.date }
   }
