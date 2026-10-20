@@ -1,5 +1,5 @@
-// Renders the app icon to a 1024×1024 PNG: a miniature menu bar (usage
-// meter, sun, time) over a dropdown panel holding a clock face.
+// Renders the app icon to a 1024×1024 PNG: the widgets stacked like cards in
+// a wallet (mail, usage, reminders, weather), with the time card in front.
 // Usage: swift scripts/make-icon.swift Assets/AppIcon.png
 import AppKit
 
@@ -11,6 +11,8 @@ func color(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
           blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
 }
 
+let white = color(0xFFFFFF)
+
 let rep = NSBitmapImageRep(
   bitmapDataPlanes: nil, pixelsWide: Int(size), pixelsHigh: Int(size), bitsPerSample: 8,
   samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
@@ -19,106 +21,143 @@ let cg = NSGraphicsContext.current!.cgContext
 // Draw in top-left coordinates.
 cg.translateBy(x: 0, y: size)
 cg.scaleBy(x: 1, y: -1)
+cg.setLineCap(.round)
+cg.setLineJoin(.round)
+
+// A point `r` from `c` at `degrees` clockwise from 12 o'clock.
+func point(_ c: CGPoint, _ r: CGFloat, _ degrees: CGFloat) -> CGPoint {
+  let a = degrees * .pi / 180
+  return CGPoint(x: c.x + sin(a) * r, y: c.y - cos(a) * r)
+}
+
+func stroke(_ from: CGPoint, _ to: CGPoint, _ width: CGFloat, _ col: CGColor) {
+  cg.setStrokeColor(col)
+  cg.setLineWidth(width)
+  cg.move(to: from)
+  cg.addLine(to: to)
+  cg.strokePath()
+}
+
+func fillRounded(_ rect: CGRect, _ radius: CGFloat, _ col: CGColor) {
+  cg.addPath(CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
+  cg.setFillColor(col)
+  cg.fillPath()
+}
 
 // Body: Apple's 824pt grid square with a continuous-corner feel.
 let body = CGRect(x: 100, y: 100, width: 824, height: 824)
-let bodyPath = CGPath(roundedRect: body, cornerWidth: 186, cornerHeight: 186, transform: nil)
+let bodyPath = CGPath(roundedRect: body, cornerWidth: 185, cornerHeight: 185, transform: nil)
 
 cg.saveGState()
-cg.setShadow(offset: CGSize(width: 0, height: 12), blur: 28, color: color(0x000000, 0.35))
+cg.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: color(0x000000, 0.32))
 cg.addPath(bodyPath)
-cg.setFillColor(color(0x1A1F5C))
+cg.setFillColor(color(0x10142A))
 cg.fillPath()
 cg.restoreGState()
 
 cg.saveGState()
 cg.addPath(bodyPath)
 cg.clip()
-let sky = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
-                     colors: [color(0x5B8CFF), color(0x3A4FD0), color(0x1A1F5C)] as CFArray,
-                     locations: [0, 0.45, 1])!
-cg.drawLinearGradient(sky, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 924), options: [])
+let night = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
+                       colors: [color(0x252C52), color(0x10142A)] as CFArray, locations: [0, 1])!
+let glow = CGPoint(x: 512, y: body.minY + body.height * 0.3)
+cg.drawRadialGradient(night, startCenter: glow, startRadius: 0, endCenter: glow, endRadius: 700,
+                      options: [.drawsAfterEndLocation])
 
-// Menu bar strip.
-let barHeight: CGFloat = 132
-cg.setFillColor(color(0xFFFFFF, 0.20))
-cg.fill(CGRect(x: body.minX, y: body.minY, width: body.width, height: barHeight))
-cg.setFillColor(color(0xFFFFFF, 0.30))
-cg.fill(CGRect(x: body.minX, y: body.minY + barHeight - 3, width: body.width, height: 3))
-let barMid = body.minY + barHeight / 2 + 6
-
-// Usage meter: three rising bars.
-cg.setFillColor(color(0xFFFFFF))
-for (i, h) in [CGFloat(26), 42, 58].enumerated() {
-  let r = CGRect(x: 300 + CGFloat(i) * 26, y: barMid + 29 - h, width: 16, height: h)
-  cg.addPath(CGPath(roundedRect: r, cornerWidth: 5, cornerHeight: 5, transform: nil))
+// Small glyphs on the cards behind, each centered on `c`.
+func envelope(_ c: CGPoint, _ card: CGColor) {
+  let w: CGFloat = 69, h = w * 0.7
+  let r = CGRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h)
+  fillRounded(r, w * 0.12, white)
+  cg.setStrokeColor(card)
+  cg.setLineWidth(5.6)
+  cg.move(to: CGPoint(x: r.minX + w * 0.1, y: r.minY + h * 0.16))
+  cg.addLine(to: CGPoint(x: c.x, y: c.y + h * 0.08))
+  cg.addLine(to: CGPoint(x: r.minX + w * 0.9, y: r.minY + h * 0.16))
+  cg.strokePath()
 }
-cg.fillPath()
 
-// Sun: disc and eight rays.
-let sun = CGPoint(x: 452, y: barMid)
-cg.fillEllipse(in: CGRect(x: sun.x - 17, y: sun.y - 17, width: 34, height: 34))
-cg.setStrokeColor(color(0xFFFFFF))
-cg.setLineWidth(8)
-cg.setLineCap(.round)
-for k in 0..<8 {
-  let a = CGFloat(k) * .pi / 4
-  cg.move(to: CGPoint(x: sun.x + cos(a) * 26, y: sun.y + sin(a) * 26))
-  cg.addLine(to: CGPoint(x: sun.x + cos(a) * 36, y: sun.y + sin(a) * 36))
+func gauge(_ c: CGPoint) {
+  let r: CGFloat = 33.5
+  let g = CGPoint(x: c.x, y: c.y + 3.7)
+  cg.setStrokeColor(white)
+  cg.setLineWidth(r * 0.2)
+  // From 8 o'clock clockwise over the top to 4 o'clock (angles from +x, y down).
+  cg.addArc(center: g, radius: r, startAngle: 150 * .pi / 180, endAngle: 30 * .pi / 180, clockwise: false)
+  cg.strokePath()
+  stroke(g, point(g, r * 0.68, 45), r * 0.14, white)
+  cg.setFillColor(white)
+  cg.fillEllipse(in: CGRect(x: g.x - r * 0.16, y: g.y - r * 0.16, width: r * 0.32, height: r * 0.32))
 }
-cg.strokePath()
 
-// Time text. Flip back locally so the glyphs draw upright.
-let text = NSAttributedString(string: "9:41", attributes: [
-  .font: NSFont.monospacedDigitSystemFont(ofSize: 64, weight: .semibold),
-  .foregroundColor: NSColor.white,
-])
-let tSize = text.size()
-cg.saveGState()
-cg.translateBy(x: 0, y: size)
-cg.scaleBy(x: 1, y: -1)
-NSGraphicsContext.saveGraphicsState()
-text.draw(at: NSPoint(x: 540, y: size - barMid - tSize.height / 2))
-NSGraphicsContext.restoreGraphicsState()
-cg.restoreGState()
+func checkbox(_ c: CGPoint) {
+  let s: CGFloat = 59.5
+  cg.addPath(CGPath(roundedRect: CGRect(x: c.x - s / 2, y: c.y - s / 2, width: s, height: s),
+                    cornerWidth: s * 0.26, cornerHeight: s * 0.26, transform: nil))
+  cg.setStrokeColor(white)
+  cg.setLineWidth(s * 0.12)
+  cg.strokePath()
+  cg.setLineWidth(s * 0.132)
+  cg.move(to: CGPoint(x: c.x - s * 0.24, y: c.y + s * 0.02))
+  cg.addLine(to: CGPoint(x: c.x - s * 0.06, y: c.y + s * 0.2))
+  cg.addLine(to: CGPoint(x: c.x + s * 0.26, y: c.y - s * 0.2))
+  cg.strokePath()
+}
 
-// Dropdown panel under the menu bar.
-let panel = CGRect(x: 232, y: 300, width: 560, height: 540)
-let panelPath = CGPath(roundedRect: panel, cornerWidth: 72, cornerHeight: 72, transform: nil)
-cg.saveGState()
-cg.setShadow(offset: CGSize(width: 0, height: 18), blur: 40, color: color(0x000000, 0.35))
-cg.addPath(panelPath)
-cg.setFillColor(color(0xF7F8FF))
-cg.fillPath()
-cg.restoreGState()
+func sun(_ c: CGPoint) {
+  let r: CGFloat = 19.8
+  cg.setFillColor(white)
+  cg.fillEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
+  for k in 0..<8 {
+    stroke(point(c, r * 1.4, CGFloat(k) * 45), point(c, r * 1.85, CGFloat(k) * 45), 5.6, white)
+  }
+}
 
-// Clock face.
-let c = CGPoint(x: panel.midX, y: panel.midY)
-let r: CGFloat = 200
-cg.setStrokeColor(color(0x1A1F5C))
-cg.setLineWidth(18)
+// The stack, back to front. Each card's shadow falls on the one behind it.
+let cardX: CGFloat = 180, cardW: CGFloat = 664, cardH: CGFloat = 330
+let cards: [(UInt32, ((CGPoint, CGColor) -> Void)?)] = [
+  (0x20B074, { envelope($0, $1) }),
+  (0xF4A321, { c, _ in gauge(c) }),
+  (0xFF6A5A, { c, _ in checkbox(c) }),
+  (0x2BB0F5, { c, _ in sun(c) }),
+  (0x5865F2, nil),
+]
+var top: CGFloat = 0
+for (i, (hex, glyph)) in cards.enumerated() {
+  top = 168 + CGFloat(i) * 94
+  let card = CGRect(x: cardX, y: top, width: cardW, height: cardH)
+  cg.saveGState()
+  cg.setShadow(offset: CGSize(width: 0, height: 6), blur: 20, color: color(0x000000, 0.35))
+  fillRounded(card, 46, color(hex))
+  cg.restoreGState()
+  if let glyph {
+    glyph(CGPoint(x: cardX + 78, y: top + 48), color(hex))
+    fillRounded(CGRect(x: cardX + 140, y: top + 38, width: 180 + CGFloat(i % 2) * 60, height: 20), 10, color(0xFFFFFF, 0.55))
+  }
+}
+
+// Front card: a clock reading 7:47, beside a few lines of placeholder text.
+let c = CGPoint(x: cardX + 170, y: top + cardH / 2 + 4)
+let r: CGFloat = 112
+cg.setStrokeColor(white)
+cg.setLineWidth(r * 0.09)
 cg.strokeEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
 for k in 0..<12 {
-  let a = CGFloat(k) * .pi / 6
-  let inner = k % 3 == 0 ? r - 52 : r - 38
-  cg.setLineWidth(k % 3 == 0 ? 14 : 8)
-  cg.move(to: CGPoint(x: c.x + sin(a) * inner, y: c.y - cos(a) * inner))
-  cg.addLine(to: CGPoint(x: c.x + sin(a) * (r - 22), y: c.y - cos(a) * (r - 22)))
-  cg.strokePath()
+  let major = k % 3 == 0
+  let a = CGFloat(k) * 30
+  stroke(point(c, r * (major ? 0.70 : 0.78), a), point(c, r * 0.86, a), r * (major ? 0.075 : 0.045), white)
 }
-// Hands at 10:10, angles clockwise from 12.
-func hand(_ angle: CGFloat, _ length: CGFloat, _ width: CGFloat, _ col: CGColor, tail: CGFloat = 0) {
-  cg.setStrokeColor(col)
-  cg.setLineWidth(width)
-  cg.move(to: CGPoint(x: c.x - sin(angle) * tail, y: c.y + cos(angle) * tail))
-  cg.addLine(to: CGPoint(x: c.x + sin(angle) * length, y: c.y - cos(angle) * length))
-  cg.strokePath()
-}
-hand((10 + 10.0 / 60) / 12 * 2 * .pi, 108, 22, color(0x1A1F5C))
-hand(10.0 / 60 * 2 * .pi, 160, 16, color(0x1A1F5C))
-hand(38.0 / 60 * 2 * .pi, 172, 7, color(0xFF7A2F), tail: 36)
-cg.setFillColor(color(0xFF7A2F))
-cg.fillEllipse(in: CGRect(x: c.x - 18, y: c.y - 18, width: 36, height: 36))
+stroke(c, point(c, r * 0.46, (7 + 47.0 / 60) * 30), r * 0.12, white)
+stroke(c, point(c, r * 0.70, 47 * 6), r * 0.085, white)
+let accent = color(0xFFB25C)
+let second: CGFloat = 10 * 6
+stroke(point(c, r * 0.16, second + 180), point(c, r * 0.76, second), r * 0.035, accent)
+cg.setFillColor(accent)
+cg.fillEllipse(in: CGRect(x: c.x - r * 0.085, y: c.y - r * 0.085, width: r * 0.17, height: r * 0.17))
+
+fillRounded(CGRect(x: cardX + 330, y: top + 110, width: 250, height: 34), 17, color(0xFFFFFF, 0.9))
+fillRounded(CGRect(x: cardX + 330, y: top + 170, width: 180, height: 22), 11, color(0xFFFFFF, 0.55))
+fillRounded(CGRect(x: cardX + 330, y: top + 214, width: 210, height: 22), 11, color(0xFFFFFF, 0.55))
 cg.restoreGState()
 
 NSGraphicsContext.current = nil
