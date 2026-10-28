@@ -47,7 +47,10 @@ run commands from global keyboard shortcuts, optionally only in certain apps
   `tomorrow`), check one off (click again within a couple of seconds to
   undo), or click a row to edit its title, due time, repeat, URL and notes.
   Keys: ↑/↓, space or Return to check off, `a` add, `e` edit, `o` open link,
-  `r` refresh, Esc. Alerts are left to Reminders' own notifications.
+  `r` refresh, Esc. Alerts are left to Reminders' own notifications. Links to
+  files, network shares (`smb:`, `afp:`, `nfs:`, `ftp:`, `vnc:`), `ssh:`,
+  `telnet:`, man pages and Help aren't opened, since anyone sharing a list
+  with you can set a reminder's URL.
 - **Claude** shows your Claude subscription usage: the fullest limit's
   percentage, orange when a limit is getting tight and red when one is at 90%
   or on course to run out before it resets. Its panel has the current limit
@@ -57,7 +60,10 @@ run commands from global keyboard shortcuts, optionally only in certain apps
   [HEY](https://hey.com) Imbox and your Gmail inboxes (Primary only, by
   default), and an orange ! while an inbox needs signing in or can't be read.
   Its panel lists them per inbox, newest first, up to eight each; click one to
-  open it in your browser. A new email gets a notification banner (click it to
+  open it in your browser, or hover it to see the sender's address (the name
+  alone is whatever the sender typed). Senders and subjects lose bidi
+  controls and invisible characters, which can make text read differently
+  from what it is, and only HEY's and Google's pages are opened (over https). A new email gets a notification banner (click it to
   open the email), which goes away once you read or archive it elsewhere. Mail
   already waiting at launch gets none, and more than three at once get one
   summary banner. Hover a conversation (or move to it with the arrow keys) and
@@ -304,6 +310,13 @@ The bridge checks the signature of every app on the socket and answers only
 MenuWidgets signed with the identity it expects and the hardened runtime. If
 the panel says PIM Bridge refused MenuWidgets, `~/Library/Logs/PIMBridge.log`
 says why. If it says PIM Bridge isn't running, start the bridge.
+
+MenuWidgets checks the other end the same way: whatever answers at the socket
+must be PIM Bridge (`com.ianneub.pim-bridge`) signed with MenuWidgets' own Team
+ID (or certificate, for a self-signed identity), under the hardened runtime
+and closed to debuggers. Anything else gets no requests, and the panel names
+it. An ad-hoc-signed MenuWidgets has no signer to compare with, so it doesn't
+connect at all; the bridge would refuse it anyway.
 
 When an account's sign-in runs out (a Google app in testing expires sign-ins
 after 7 days), its section says so: click **Sign in…** and finish in the

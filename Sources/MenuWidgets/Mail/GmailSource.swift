@@ -93,7 +93,7 @@ final class GmailHub: ObservableObject {
         s.publish(GmailMail.items(email: s.email, messages: try GmailMail.messages(searchJSON: data)))
       } catch {
         let f = Self.failure(error)
-        if f == .notRunning || f == .refused { state = .failed(f); return }
+        if f.isConnection { state = .failed(f); return }
         s.status = .error(f.message)
       }
     }
@@ -130,7 +130,9 @@ final class GmailHub: ObservableObject {
       do {
         let data = try await client.call("sign_in", ["email": s.email])
         struct Reply: Decodable { let url: String? }
-        s.signInURL = (try? JSONDecoder().decode(Reply.self, from: data))?.url.flatMap(URL.init(string:))
+        // Google's page, and only that, gets a button to open it again.
+        s.signInURL = (try? JSONDecoder().decode(Reply.self, from: data))?.url
+          .flatMap(URL.init(string:)).flatMap { MailLinks.opens($0) ? $0 : nil }
       } catch {
         s.status = .error(Self.failure(error).message)
       }

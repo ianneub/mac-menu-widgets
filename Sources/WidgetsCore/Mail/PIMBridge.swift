@@ -11,6 +11,34 @@ public enum PIMBridge {
 
   public static let logPath = "~/Library/Logs/PIMBridge.log"
 
+  public static let identifier = "com.ianneub.pim-bridge"
+
+  /// The code requirement the process at the socket must meet before
+  /// MenuWidgets talks to it, the mirror of the bridge's check on
+  /// MenuWidgets: PIM Bridge's identifier, signed with MenuWidgets' Apple
+  /// Team ID, or with the same certificate when there's no team (a
+  /// self-signed identity). nil when MenuWidgets is signed ad hoc, which
+  /// leaves nothing to pin.
+  public static func requirement(teamID: String?, leafSHA1: String?) -> String? {
+    let signer: String
+    if let teamID, !teamID.isEmpty {
+      signer = "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\""
+    } else if let leafSHA1, !leafSHA1.isEmpty {
+      signer = "certificate leaf = H\"\(leafSHA1)\""
+    } else {
+      return nil
+    }
+    return "identifier \"\(identifier)\" and \(signer)"
+  }
+
+  /// Whether a running process's code-signing status (`kSecCodeInfoStatus`)
+  /// is one to trust: valid, under the hardened runtime, and closed to
+  /// debuggers (no get-task-allow), so no other code can be running inside it.
+  public static func trustedStatus(_ status: UInt32) -> Bool {
+    let valid: UInt32 = 0x1, getTaskAllow: UInt32 = 0x4, runtime: UInt32 = 0x10000
+    return status & valid != 0 && status & runtime != 0 && status & getTaskAllow == 0
+  }
+
   /// A `tools/call` request, newline included.
   public static func request(id: Int, tool: String, arguments: [String: Any]) -> Data {
     let body: [String: Any] = [

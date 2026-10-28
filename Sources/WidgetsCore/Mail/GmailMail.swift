@@ -95,10 +95,12 @@ public enum GmailMail {
     let account = accountID(email)
     return Dictionary(grouping: messages, by: \.threadID).values.compactMap { msgs -> MailItem? in
       guard let newest = msgs.max(by: { $0.date < $1.date }) else { return nil }
-      let subject = newest.subject.isEmpty ? "(no subject)" : newest.subject
+      let subject = MailText.plain(newest.subject)
       return MailItem(
         id: itemID(account: account, threadID: newest.threadID), account: account, revision: newest.id,
-        sender: MailText.displayName(fromHeader: newest.from), subject: subject,
+        sender: MailText.plain(MailText.displayName(fromHeader: newest.from)),
+        address: MailText.plain(MailText.address(fromHeader: newest.from)),
+        subject: subject.isEmpty ? "(no subject)" : subject,
         snippet: MailText.cleanSnippet(newest.snippet), date: newest.date,
         url: webURL(email: email, threadID: newest.threadID), unread: msgs.count, trashID: newest.threadID)
     }

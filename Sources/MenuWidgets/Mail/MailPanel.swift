@@ -359,6 +359,7 @@ struct MailRow: View {
     .contentShape(Rectangle())
     .onHover { inside in if inside { model.cursor = index } }
     .onTapGesture { model.open(item.url) }
-    .help(item.subject)
+    // The address too: the name alone is whatever the sender typed.
+    .help(item.from + "\n" + item.subject)
   }
 }

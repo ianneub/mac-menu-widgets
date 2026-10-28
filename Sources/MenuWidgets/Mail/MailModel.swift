@@ -253,6 +253,7 @@ final class MailModel: ObservableObject {
   var trashable: Bool { sources.contains { $0.canTrash } }
 
   func open(_ url: URL) {
+    guard MailLinks.opens(url) else { NSLog("mail: not opening \(url.absoluteString)"); return }
     NSWorkspace.shared.open(url)
     onClose()
   }
@@ -360,7 +361,8 @@ final class MailNotifier: NSObject, UNUserNotificationCenterDelegate {
   nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                           withCompletionHandler completionHandler: @escaping () -> Void) {
     if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
-       let s = response.notification.request.content.userInfo["url"] as? String, let url = URL(string: s) {
+       let s = response.notification.request.content.userInfo["url"] as? String, let url = URL(string: s),
+       MailLinks.opens(url) {
       DispatchQueue.main.async { NSWorkspace.shared.open(url) }
     }
     completionHandler()

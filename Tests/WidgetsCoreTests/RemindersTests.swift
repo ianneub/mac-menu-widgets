@@ -148,6 +148,13 @@ private func entry(_ i: ReminderItem, now: Date = NOW) -> AgendaEntry {
   #expect(Links.openable("message://%3cid%3e"))
   #expect(!Links.openable("--help"))
   #expect(!Links.openable(""))
+  for ok in ["https://a.io", "message://%3cid%3e", "things:///show?id=1", "mailto:a@b.io"] {
+    #expect(Links.allowed(URL(string: ok)!), "\(ok)")
+  }
+  for bad in ["file:///Applications/Calculator.app", "FILE:///tmp/x", "smb://evil.example/share", "afp://h/s",
+              "ssh://evil.example", "x-man-page://ls", "help:anchor=x"] {
+    #expect(!Links.allowed(URL(string: bad)!), "\(bad)")
+  }
   #expect(Links.firstLink(item(notes: "https://b.io", url: "https://a.io")) == "https://a.io")
   #expect(Links.firstLink(item(notes: "see www.b.io/x_(y).")) == "https://www.b.io/x_(y)")
   #expect(Links.firstLink(item(notes: "no links")) == "")

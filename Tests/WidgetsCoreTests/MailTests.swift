@@ -44,6 +44,47 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   #expect(MailText.displayName(fromHeader: "jane@example.com") == "jane@example.com")
 }
 
+@Test func mailAddresses() {
+  #expect(MailText.address(fromHeader: "\"Jane Doe\" <jane@example.com>") == "jane@example.com")
+  #expect(MailText.address(fromHeader: "<jane@example.com>") == "jane@example.com")
+  #expect(MailText.address(fromHeader: "jane@example.com") == "jane@example.com")
+  #expect(MailText.address(fromHeader: "Jane Doe") == "")
+  // A name dressed up as an address loses to the real one at the end.
+  #expect(MailText.address(fromHeader: "\"PayPal <service@paypal.com>\" <x@evil.example>") == "x@evil.example")
+}
+
+@Test func mailFromShowsTheAddress() {
+  func item(_ sender: String, _ address: String) -> MailItem {
+    MailItem(id: "a", account: "a", revision: "1", sender: sender, address: address, subject: "s", snippet: "",
+             date: .distantPast, url: URL(string: "https://app.hey.com/imbox")!)
+  }
+  #expect(item("PayPal", "x@evil.example").from == "PayPal <x@evil.example>")
+  #expect(item("jane@example.com", "Jane@example.com").from == "jane@example.com")
+  #expect(item("Jane", "").from == "Jane")
+}
+
+@Test func mailTextLosesBidiAndInvisibleCharacters() {
+  // A right-to-left override would show "invoice\u{202E}fdp.exe" as "invoiceexe.pdf".
+  #expect(MailText.plain("invoice\u{202E}fdp.exe") == "invoicefdp.exe")
+  #expect(MailText.plain("\u{2067}Pay\u{200B}Pal\u{2069}\u{FEFF}") == "PayPal")
+  #expect(MailText.plain(" Two\nlines\u{0}\tand a tab ") == "Two lines and a tab")
+  // Joiners stay: emoji sequences need them.
+  #expect(MailText.plain("👩\u{200D}💻") == "👩\u{200D}💻")
+  // Spelled out as an entity, too.
+  #expect(MailText.cleanSnippet("a&#x202E;b&#8238;c") == "abc")
+}
+
+@Test func mailOpensOnlyHeyAndGooglePages() {
+  for ok in ["https://app.hey.com/topics/1", "https://mail.google.com/a/x.com/#inbox",
+             "https://accounts.google.com/o/oauth2/v2/auth?x=1", "https://evil.example@mail.google.com/"] {
+    #expect(MailLinks.opens(URL(string: ok)!), "\(ok)")
+  }
+  for bad in ["http://app.hey.com/topics/1", "file:///Applications/Calculator.app", "smb://evil.example/share",
+              "https://mail.google.com.evil.example/", "https://evilhey.com/", "x-man-page://ls", "https:/nohost"] {
+    #expect(!MailLinks.opens(URL(string: bad)!), "\(bad)")
+  }
+}
+
 @Test func mailSnippetsLoseEntities() {
   #expect(MailText.cleanSnippet("It&#39;s  here &amp; there&nbsp;\n now") == "It's here & there now")
   #expect(MailText.cleanSnippet("&#x2019;") == "\u{2019}")
@@ -82,6 +123,24 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   #expect(items[1].sender == "Fidelity")
   #expect(items[1].date == Date(timeIntervalSince1970: 1_791_482_400.5))
   #expect(items[1].url.absoluteString == "https://app.hey.com/topics/102")
+}
+
+@Test func heyPostingsStayOnHey() throws {
+  let json = """
+  {"data": {"postings": [
+    {"id": 1, "name": "A\\u202e", "creator": {"name": "Pay\\u200bPal", "email_address": "x@evil.example"},
+     "app_url": "file:///Applications/Calculator.app"},
+    {"id": 2, "name": "", "app_url": "https://evil.example/topics/2"},
+    {"id": 3, "app_url": "not a url at all"}
+  ]}}
+  """
+  let items = try HeyMail.unseen(boxJSON: Data(json.utf8))
+  // A link anywhere but HEY opens the Imbox instead.
+  #expect(items.map(\.url) == [HeyMail.imboxURL, HeyMail.imboxURL, HeyMail.imboxURL])
+  #expect(items[0].sender == "PayPal")
+  #expect(items[0].address == "x@evil.example")
+  #expect(items[0].subject == "A")
+  #expect(items[1].subject == "(no subject)")
 }
 
 @Test func heyWatchLines() {
@@ -139,6 +198,7 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   #expect(items[0].id == "gmail:me@example.com:t1")
   #expect(items[0].revision == "m2")
   #expect(items[0].sender == "Ann")
+  #expect(items[0].address == "ann@x.com")
   #expect(items[0].subject == "Re: Lunch")
   #expect(items[0].unread == 2)
   // Not the bridge's `/mail/u/<email>/` link, which 404s for Workspace accounts.
@@ -160,6 +220,24 @@ private func item(_ id: String, rev: String = "1", date: Date = Date(timeInterva
   let params = obj["params"] as! [String: Any]
   #expect(params["name"] as? String == "search")
   #expect((params["arguments"] as! [String: Any])["max"] as? Int == 100)
+}
+
+@Test func bridgeRequirementPinsTheSigner() {
+  #expect(PIMBridge.requirement(teamID: "8VKFEEQHSC", leafSHA1: "abc")
+    == #"identifier "com.ianneub.pim-bridge" and anchor apple generic and certificate leaf[subject.OU] = "8VKFEEQHSC""#)
+  // A self-signed identity has no team: the certificate itself.
+  #expect(PIMBridge.requirement(teamID: "", leafSHA1: "abc")
+    == #"identifier "com.ianneub.pim-bridge" and certificate leaf = H"abc""#)
+  // Ad hoc: nothing to pin.
+  #expect(PIMBridge.requirement(teamID: nil, leafSHA1: nil) == nil)
+}
+
+@Test func bridgeStatusMustBeHardened() {
+  #expect(PIMBridge.trustedStatus(0x1 | 0x10000))
+  #expect(PIMBridge.trustedStatus(0x1 | 0x10000 | 0x200))
+  #expect(!PIMBridge.trustedStatus(0x10000))            // not valid
+  #expect(!PIMBridge.trustedStatus(0x1))                // no hardened runtime
+  #expect(!PIMBridge.trustedStatus(0x1 | 0x10000 | 0x4))  // a debugger may attach
 }
 
 @Test func bridgeReplies() {

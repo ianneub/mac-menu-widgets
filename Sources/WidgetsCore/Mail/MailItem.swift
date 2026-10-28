@@ -10,7 +10,10 @@ public struct MailItem: Equatable, Sendable, Identifiable {
   /// What changes when new mail lands on the thread: Gmail's newest unread
   /// message id, HEY's posting activity time. A change means "notify again".
   public var revision: String
+  /// The sender's name, or their address when there's no name.
   public var sender: String
+  /// The sender's email address; empty when the inbox doesn't say.
+  public var address: String
   public var subject: String
   public var snippet: String
   public var date: Date
@@ -23,11 +26,18 @@ public struct MailItem: Equatable, Sendable, Identifiable {
   /// sender's stream, not one thread).
   public var trashID: String?
 
-  public init(id: String, account: String, revision: String, sender: String, subject: String,
+  public init(id: String, account: String, revision: String, sender: String, address: String = "", subject: String,
               snippet: String, date: Date, url: URL, unread: Int = 1, trashID: String? = nil) {
-    self.id = id; self.account = account; self.revision = revision; self.sender = sender
+    self.id = id; self.account = account; self.revision = revision; self.sender = sender; self.address = address
     self.subject = subject; self.snippet = snippet; self.date = date; self.url = url; self.unread = unread
     self.trashID = trashID
+  }
+
+  /// The name with the address, as `Jane Doe <jane@example.com>`. The name
+  /// alone is whatever the sender typed, so anyone can call themselves
+  /// "PayPal"; the address says who it's really from.
+  public var from: String {
+    address.isEmpty || address.caseInsensitiveCompare(sender) == .orderedSame ? sender : "\(sender) <\(address)>"
   }
 }
 
@@ -64,6 +74,19 @@ public enum MailDiff {
   public static let bannerLimit = 3
 }
 
+/// What the mail widget opens: HEY's and Google's pages over https, and
+/// nothing else, whatever a reply says. A link from HEY's server or PIM
+/// Bridge that pointed at a file, a network share or another app would
+/// otherwise open on a click.
+public enum MailLinks {
+  static let hosts = ["hey.com", "google.com"]
+
+  public static func opens(_ url: URL) -> Bool {
+    guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else { return false }
+    return hosts.contains { host == $0 || host.hasSuffix("." + $0) }
+  }
+}
+
 public enum MailText {
   /// "Jane Doe" from `"Jane Doe" <jane@example.com>`; the address when
   /// there's no name.
@@ -78,6 +101,37 @@ public enum MailText {
     return s.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
   }
 
+  /// "jane@example.com" from `"Jane Doe" <jane@example.com>`, or from a bare
+  /// address; empty when the header has none.
+  public static func address(fromHeader raw: String) -> String {
+    let s = raw.trimmingCharacters(in: .whitespaces)
+    if let lt = s.lastIndex(of: "<") {
+      return String(s[s.index(after: lt)...].prefix { $0 != ">" }).trimmingCharacters(in: .whitespaces)
+    }
+    let bare = s.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    return bare.contains("@") && !bare.contains(" ") ? bare : ""
+  }
+
+  /// A sender, subject or snippet made safe to show on one line: no bidi
+  /// controls, which can make text read differently from what it is (an
+  /// override turns "\u{202E}fdp.exe" into "exe.pdf" on screen), no
+  /// invisible characters, and line breaks and control characters as
+  /// spaces. Joiners stay, since emoji and some scripts need them.
+  public static func plain(_ s: String) -> String {
+    var scalars = String.UnicodeScalarView()
+    scalars.append(contentsOf: s.unicodeScalars.filter { !hidden($0) })
+    return String(scalars)
+      .replacingOccurrences(of: "[\\s\\p{Cc}]+", with: " ", options: .regularExpression)
+      .trimmingCharacters(in: .whitespaces)
+  }
+
+  static func hidden(_ c: Unicode.Scalar) -> Bool {
+    switch c.value {
+    case 0x061C, 0x200B, 0x200E, 0x200F, 0x202A...0x202E, 0x2060...0x2064, 0x2066...0x2069, 0xFEFF: return true
+    default: return false
+    }
+  }
+
   /// Gmail and HEY snippets carry HTML entities (`&#39;`, `&amp;`) and runs
   /// of whitespace.
   public static func cleanSnippet(_ s: String) -> String {
@@ -89,8 +143,8 @@ public enum MailText {
       let code = body.hasPrefix("x") ? UInt32(body.dropFirst(), radix: 16) : UInt32(body)
       out.replaceSubrange(r, with: code.flatMap(Unicode.Scalar.init).map { String(Character($0)) } ?? "")
     }
-    out = out.replacingOccurrences(of: "[\\s\u{200C}\u{034F}]+", with: " ", options: .regularExpression)
-    return out.trimmingCharacters(in: .whitespaces)
+    // Entities can spell out bidi controls too, so this comes after them.
+    return plain(out.replacingOccurrences(of: "[\\s\u{200C}\u{034F}]+", with: " ", options: .regularExpression))
   }
 
   /// "3:04 PM" today, "Yesterday", "Tue", or "Sep 23" in the panel.

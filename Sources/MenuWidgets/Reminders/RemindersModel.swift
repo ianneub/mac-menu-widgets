@@ -391,6 +391,10 @@ final class RemindersModel: ObservableObject {
 
   func open(_ link: String) {
     guard Links.openable(link), let url = URL(string: link) else { return }
+    guard Links.allowed(url) else {
+      NSLog("reminders: not opening a \(url.scheme ?? ""): link")
+      return
+    }
     NSWorkspace.shared.open(url)
     onClose()
   }

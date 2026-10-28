@@ -12,6 +12,10 @@ final class BridgeClient: @unchecked Sendable {
     /// The bridge took the connection and closed it without a reply: it
     /// checks every caller's code signature and refused this one.
     case refused
+    /// Something other than PIM Bridge is at the socket (by its path).
+    case impostor(String)
+    /// MenuWidgets is signed ad hoc, so it can't check who's at the socket.
+    case unpinned
     /// The tool ran and said no, in the bridge's words.
     case tool(String)
     case other(String)
@@ -20,7 +24,17 @@ final class BridgeClient: @unchecked Sendable {
       switch self {
       case .notRunning: return "PIM Bridge isn't running. Gmail is read through it."
       case .refused: return "PIM Bridge refused MenuWidgets. Its signature may not match what the bridge expects; \(PIMBridge.logPath) says why."
+      case .impostor(let who): return "Something other than PIM Bridge is answering at its socket (\(who)), so MenuWidgets won't use it."
+      case .unpinned: return "MenuWidgets is signed ad hoc, so it can't tell PIM Bridge from an impostor. Sign it with your identity (see Gmail setup in the README)."
       case .tool(let m), .other(let m): return m
+      }
+    }
+
+    /// The connection failed, rather than one request.
+    var isConnection: Bool {
+      switch self {
+      case .notRunning, .refused, .impostor, .unpinned: return true
+      case .tool, .other: return false
       }
     }
   }
@@ -114,6 +128,17 @@ final class BridgeClient: @unchecked Sendable {
       close(s)
       if err == ENOENT || err == ECONNREFUSED { throw Failure.notRunning }
       throw Failure.other("Can't reach PIM Bridge: \(String(cString: strerror(err)))")
+    }
+    switch BridgeIdentity.check(s) {
+    case .genuine:
+      break
+    case .impostor(let who):
+      close(s)
+      NSLog("mail: \(who) is at PIM Bridge's socket and isn't PIM Bridge; not using it")
+      throw Failure.impostor(who)
+    case .unpinned:
+      close(s)
+      throw Failure.unpinned
     }
     fd = s
     buffer = Data()

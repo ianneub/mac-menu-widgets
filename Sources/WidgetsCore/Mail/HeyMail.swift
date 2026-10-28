@@ -10,14 +10,16 @@ public enum HeyMail {
   public static func unseen(boxJSON data: Data) throws -> [MailItem] {
     let root = try JSONDecoder().decode(Root.self, from: data)
     return root.data.postings.compactMap { p in
-      guard p.seen != true, let url = URL(string: p.app_url ?? "https://app.hey.com/imbox") else { return nil }
+      guard p.seen != true else { return nil }
       let date = p.active_at.flatMap(parseDate) ?? Date.distantPast
       let thread = p.topic_id ?? p.id
-      let sender = [p.alternative_sender_name, p.creator?.name].compactMap { $0 }.first { !$0.isEmpty } ?? "HEY"
+      let sender = [p.alternative_sender_name, p.creator?.name].compactMap { $0.map(MailText.plain) }.first { !$0.isEmpty } ?? "HEY"
+      let subject = MailText.plain(p.name ?? "")
       return MailItem(
         id: "hey:\(thread)", account: accountID, revision: p.active_at ?? "",
-        sender: sender, subject: p.name ?? "(no subject)", snippet: MailText.cleanSnippet(p.summary ?? ""),
-        date: date, url: url,
+        sender: sender, address: MailText.plain(p.creator?.email_address ?? ""),
+        subject: subject.isEmpty ? "(no subject)" : subject, snippet: MailText.cleanSnippet(p.summary ?? ""),
+        date: date, url: webURL(p.app_url),
         // `hey trash` takes the box item id. A bundle row "trashes" with
         // success and nothing moves, so it gets no trash button.
         trashID: p.kind == nil || p.kind == "topic" ? String(p.id) : nil)
@@ -47,6 +49,15 @@ public enum HeyMail {
     }
   }
 
+  public static let imboxURL = URL(string: "https://app.hey.com/imbox")!
+
+  /// A posting's page in HEY, or the Imbox when it has none (or one that
+  /// isn't HEY's).
+  static func webURL(_ s: String?) -> URL {
+    guard let url = s.flatMap(URL.init(string:)), MailLinks.opens(url) else { return imboxURL }
+    return url
+  }
+
   static func parseDate(_ s: String) -> Date? {
     let f = ISO8601DateFormatter()
     if let d = f.date(from: s) { return d }
@@ -68,5 +79,5 @@ public enum HeyMail {
     let active_at: String?
     let app_url: String?
   }
-  private struct Creator: Decodable { let name: String? }
+  private struct Creator: Decodable { let name: String?; let email_address: String? }
 }

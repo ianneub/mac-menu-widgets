@@ -23,7 +23,7 @@ final class HeySource: MailSource {
 
   init(command: String) {
     self.command = command
-    super.init(id: HeyMail.accountID, name: "HEY", inboxURL: URL(string: "https://app.hey.com/imbox")!)
+    super.init(id: HeyMail.accountID, name: "HEY", inboxURL: HeyMail.imboxURL)
   }
 
   override func start() {

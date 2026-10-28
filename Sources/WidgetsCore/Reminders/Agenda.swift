@@ -211,6 +211,21 @@ public enum Links {
     url.range(of: #"^[a-z][a-z0-9+.-]*:"#, options: [.regularExpression, .caseInsensitive]) != nil
   }
 
+  /// Schemes never opened, from a click or `o`: they reach local files,
+  /// mount network shares, or start a program (Terminal for ssh and telnet,
+  /// man pages, Help Viewer). Anyone sharing a list can set a reminder's URL,
+  /// so one of these could otherwise run something on a click.
+  static let blockedSchemes: Set<String> = [
+    "file", "smb", "afp", "nfs", "cifs", "ftp", "ftps", "vnc", "ssh", "telnet", "x-man-page", "help",
+  ]
+
+  /// Whether a link may be opened: anything with a scheme but those above,
+  /// so web pages, mail (`message:`) and other apps' links still work.
+  public static func allowed(_ url: URL) -> Bool {
+    guard let scheme = url.scheme?.lowercased() else { return false }
+    return !blockedSchemes.contains(scheme)
+  }
+
   /// A match minus trailing punctuation, keeping a closing paren that
   /// belongs to the address, as in wiki links.
   static func trim(_ match: String) -> String {
