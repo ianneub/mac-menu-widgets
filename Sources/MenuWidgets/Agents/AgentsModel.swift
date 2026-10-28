@@ -61,6 +61,9 @@ final class AgentsModel: ObservableObject {
       record.limits = Self.demoLimits(now: Date())
       // "running": nothing at the limit, so the label shows the yellow state.
       if demo == "running" { record.limits.removeAll { $0.percent >= 0.9 } }
+      // "tight" and "fine": only the limits that aren't any worse.
+      let worst: [String: [UsageFormat.Projection.Level]] = ["tight": [.over], "fine": [.over, .tight]]
+      if let drop = worst[demo] { record.limits.removeAll { drop.contains(UsageFormat.concern($0, now: Date())) } }
     }
     self.record = record
     now = Date()

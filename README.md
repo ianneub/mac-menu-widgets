@@ -73,6 +73,41 @@ run commands from global keyboard shortcuts, optionally only in certain apps
   [Gmail setup](#gmail-setup)). Each check reads at most the newest 100 unread
   Gmail messages and 50 HEY threads, so a bigger backlog shows a lower count.
 
+## Screenshots
+
+The menu-bar labels, in each of their states:
+
+| Widget | Label |
+| --- | --- |
+| Time | <img src="Assets/screenshots/labels/time.png" height="22" alt="Wed Oct 28 2:38 PM"> |
+| Weather | <img src="Assets/screenshots/labels/weather-clear.png" height="22" alt="Clear, 73°F"> <img src="Assets/screenshots/labels/weather-cloudy.png" height="22" alt="Overcast, 73°F"> <img src="Assets/screenshots/labels/weather-rain.png" height="22" alt="Rain, 73°F"> <img src="Assets/screenshots/labels/weather-storm.png" height="22" alt="Thunderstorm, 73°F"> <img src="Assets/screenshots/labels/weather-snow.png" height="22" alt="Snow, 73°F"> <img src="Assets/screenshots/labels/weather-night.png" height="22" alt="Clear night, 73°F"><br>The current conditions, by day or night |
+| Reminders | <img src="Assets/screenshots/labels/reminders.png" height="22" alt="Bell, 2"> left today<br><img src="Assets/screenshots/labels/reminders-past-due.png" height="22" alt="Red ringing bell, 2"> some are past due |
+| Claude | <img src="Assets/screenshots/labels/claude.png" height="22" alt="9%"> room to spare<br><img src="Assets/screenshots/labels/claude-tight.png" height="22" alt="Orange, 45%"> a limit is getting tight<br><img src="Assets/screenshots/labels/claude-over.png" height="22" alt="Red, 100%"> a limit is at 90% or on course to run out |
+| Mail | <img src="Assets/screenshots/labels/mail.png" height="22" alt="Envelope, 5"> unread conversations<br><img src="Assets/screenshots/labels/mail-none.png" height="22" alt="Empty envelope"> nothing unread<br><img src="Assets/screenshots/labels/mail-attention.png" height="22" alt="Envelope, 5, orange !"> an inbox needs signing in or can't be read |
+
+The panels, with made-up reminders, mail and calendar events. Time and
+Weather are shown with a row hovered, and its detail pane beside the panel.
+
+### Time
+
+<img src="Assets/screenshots/time.png" alt="The Time panel: a month calendar with today's events, the local time, the moon and world clocks, with London's day/night map, sun and moon times, twilight and golden hours beside it">
+
+### Weather
+
+<img src="Assets/screenshots/weather.png" alt="The Weather panel: current conditions and a ten-day forecast, with Thursday's hourly chance of rain, temperature and wind beside it">
+
+### Reminders
+
+<img src="Assets/screenshots/reminders.png" alt="The Reminders panel: a form to add a reminder, then overdue, today and tomorrow">
+
+### Claude
+
+<img src="Assets/screenshots/claude.png" alt="The Claude panel: usage limit meters with reset countdowns, tokens by day and tokens by model">
+
+### Mail
+
+<img src="Assets/screenshots/mail.png" alt="The Mail panel: unread conversations in a HEY inbox and a Gmail inbox">
+
 ## Requirements
 
 - macOS 15 or later

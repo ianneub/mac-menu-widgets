@@ -78,7 +78,14 @@ final class MailModel: ObservableObject {
     rebuild()
   }
 
+  /// MENU_WIDGETS_MAIL_DEMO=1: made-up inboxes in place of HEY and Gmail,
+  /// for screenshots that don't show your own mail. =empty has nothing
+  /// unread, and =attention has the second inbox waiting for a sign-in.
+  private static let demoMode = ProcessInfo.processInfo.environment["MENU_WIDGETS_MAIL_DEMO"]
+  private static var demo: Bool { demoMode != nil }
+
   private func rebuild() {
+    if Self.demo { sources = Self.demoSources(now: Date()); return }
     hey?.stop()
     gmail?.stop()
     hey = settings.hey ? HeySource(command: settings.heyCommand) : nil
@@ -88,6 +95,31 @@ final class MailModel: ObservableObject {
     if settings.notify { notifier.requestAuthorization() }
     hey?.start()
     gmail?.start()
+  }
+
+  private static func demoSources(now: Date) -> [MailSource] {
+    func inbox(_ id: String, _ name: String, _ mail: [(sender: String, subject: String, snippet: String, minutesAgo: Double)]) -> MailSource {
+      let url = URL(string: "https://example.com/\(id)")!
+      let source = MailSource(id: id, name: name, inboxURL: url)
+      source.publish(demoMode == "empty" ? [] : mail.enumerated().map { i, m in
+        MailItem(id: "\(id):\(i)", account: id, revision: "1", sender: m.sender, subject: m.subject, snippet: m.snippet,
+                 date: now.addingTimeInterval(-m.minutesAgo * 60), url: url)
+      })
+      return source
+    }
+    let sources = [
+      inbox("hey", "HEY", [
+        ("Maya Chen", "Dinner on Saturday?", "We were thinking 7 at the new place on Main. Let me know if that works.", 12),
+        ("City Library", "Your holds are ready", "2 items are waiting for you at the front desk until Friday.", 95),
+      ]),
+      inbox("gmail:work", "Work", [
+        ("Sam Ortiz", "Re: Launch checklist", "Looks good to me. I added two items about the docs.", 4),
+        ("GitHub", "[menu-widgets] New issue: Dark mode label", "The label is hard to read on a tinted menu bar.", 48),
+        ("Priya Natarajan", "Notes from today's sync", "Here's a quick summary of what we covered and who owns what.", 180),
+      ]),
+    ]
+    if demoMode == "attention" { sources[1].status = .needsSignIn }
+    return sources
   }
 
   /// Watches the current sources (Gmail's accounts come and go with the

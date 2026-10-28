@@ -28,7 +28,9 @@ Set these when launching the binary to check UI without clicking. Stop the insta
 - `MENU_WIDGETS_TIME_DETAIL=<n>` (`-1` local time, `-3` moon phases, `0…` zones), `MENU_WIDGETS_WEATHER_DETAIL=<n>` (day row), `MENU_WIDGETS_REMINDERS_EDIT=<row>[,<preset>]` open a popup with a specific side pane/form.
 - `MENU_WIDGETS_TIME_SNAPSHOT=<dir>` renders the time panel and panes to PNGs (light and dark) and quits. `MENU_WIDGETS_SNAPSHOT=<dir>` (debug builds only) writes the agents panel and label to PNGs, in the current appearance, after every refresh, and the app keeps running.
 - `MENU_WIDGETS_CALENDAR_DEMO=1` fills the time popup's month calendar with made-up events instead of reading EventKit.
-- `MENU_WIDGETS_AGENTS_DEMO=1` (or `=running`) swaps in fake Claude limits, one per style.
+- `MENU_WIDGETS_AGENTS_DEMO=1` (or `=running`) swaps in fake Claude limits, one per style; `=tight` and `=fine` drop the ones worse than that, for the label's orange and plain states.
+- `MENU_WIDGETS_REMINDERS_DEMO=1` (`=ontime` without the past-due ones) and `MENU_WIDGETS_MAIL_DEMO=1` (`=empty`, or `=attention` for an inbox needing sign-in) swap in made-up reminders and inboxes. `MENU_WIDGETS_WEATHER_DEMO=<WMO code>[,night]` overrides the current conditions.
+- `MENU_WIDGETS_LABEL_SNAPSHOT=<dir>` writes each menu-bar label to `<dir>/<id>.png` (2x, current appearance) whenever it changes. With the demo variables, this and `screencapture -l<window id>` on an open popup make the README's screenshots in `Assets/screenshots/`. Popup windows can be captured even when macOS hides the status item for lack of room and the popup lands off-screen.
 - `MENU_WIDGETS_NO_KEYCHAIN=1` skips reading Claude Code's Keychain credentials.
 - `MENU_WIDGETS_MAIL_TEST=1` posts a sample new-mail banner.
 

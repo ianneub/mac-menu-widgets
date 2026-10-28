@@ -114,7 +114,22 @@ final class RemindersModel: ObservableObject {
     observers = []
   }
 
+  /// MENU_WIDGETS_REMINDERS_DEMO=1: made-up reminders in place of EventKit,
+  /// for screenshots that don't show your own (=ontime leaves out the ones
+  /// past due).
+  private static let demoMode = ProcessInfo.processInfo.environment["MENU_WIDGETS_REMINDERS_DEMO"]
+  private static var demo: Bool { demoMode != nil }
+
   private func requestAccessIfNeeded() {
+    if Self.demo {
+      access = .granted
+      let now = Date()
+      items = Self.demoItems(now: now).filter { Self.demoMode != "ontime" || ($0.due ?? now) > now }
+      lists = [ReminderStore.ListInfo(id: "demo", name: "Reminders", isDefault: true, writable: true, rgb: [0.2, 0.5, 1])]
+      loaded = true
+      lastFetch = Date()
+      return
+    }
     if ReminderStore.hasAccess { access = .granted; refresh(); return }
     guard ReminderStore.undecided else { access = .denied; return }
     store.requestAccess { granted in
@@ -131,6 +146,7 @@ final class RemindersModel: ObservableObject {
 
   func refresh() {
     now = Date()
+    if Self.demo { return }
     if access != .granted {
       guard ReminderStore.hasAccess else { return }
       access = .granted
@@ -164,6 +180,25 @@ final class RemindersModel: ObservableObject {
       }
       self.flushRefresh()
     }
+  }
+
+  private static func demoItems(now: Date) -> [ReminderItem] {
+    let cal = Calendar.current
+    let today = cal.startOfDay(for: now)
+    func at(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+      cal.date(byAdding: DateComponents(day: day, hour: hour, minute: minute), to: today)!
+    }
+    return [
+      ReminderItem(id: "demo-1", title: "Renew passport", list: "Reminders", due: at(-1, 0)),
+      ReminderItem(id: "demo-2", title: "Call the dentist", list: "Reminders",
+                   notes: "Ask about moving the cleaning to a morning.", due: at(0, 9, 30), hasTime: true),
+      ReminderItem(id: "demo-3", title: "Water the plants", list: "Reminders", due: at(0, 18), hasTime: true,
+                   rule: RepeatRule(frequency: "weekly")),
+      ReminderItem(id: "demo-4", title: "Pick up the dry cleaning", list: "Reminders", due: at(0, 17, 30), hasTime: true),
+      ReminderItem(id: "demo-5", title: "Read the quarterly report", list: "Reminders",
+                   url: "https://example.com/report", due: at(1, 10), hasTime: true),
+      ReminderItem(id: "demo-6", title: "Take out the recycling", list: "Reminders", due: at(1, 0)),
+    ]
   }
 
   /// Runs a refresh that was held back, once nothing holds it any more.

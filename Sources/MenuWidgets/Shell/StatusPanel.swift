@@ -421,6 +421,17 @@ private final class LabelImage {
     button.image = image
     if let image { item.length = ceil(image.size.width) + 2 }
     noteImageChange()
+    writeSnapshot()
+  }
+
+  /// MENU_WIDGETS_LABEL_SNAPSHOT=<dir> writes each label, at 2x and in the
+  /// menu bar's current appearance, to <dir>/<id>.png whenever it changes.
+  private static let snapshotDir = ProcessInfo.processInfo.environment["MENU_WIDGETS_LABEL_SNAPSHOT"]
+
+  private func writeSnapshot() {
+    guard let dir = Self.snapshotDir, let cg = renderers.last?.cgImage,
+          let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else { return }
+    try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(id).png"))
   }
 
   /// Logs (at most once a minute) when the image changed more than 20 times

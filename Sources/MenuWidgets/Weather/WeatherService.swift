@@ -141,7 +141,24 @@ final class WeatherService: ObservableObject {
   var activeNwsDays: [Weather.Day] { nwsDaysKey == point?.key ? nwsDays : [] }
   var activeNwsHours: [Weather.Hour] { nwsHoursKey == point?.key ? nwsHours : [] }
 
-  var current: Weather.Current? { Weather.openMeteoCurrent(activeOpenMeteo) }
+  var current: Weather.Current? {
+    guard var current = Weather.openMeteoCurrent(activeOpenMeteo) else { return nil }
+    if let (code, isDay) = Self.demoConditions {
+      current.weatherCode = code
+      current.isDay = isDay
+    }
+    return current
+  }
+
+  /// MENU_WIDGETS_WEATHER_DEMO=<WMO code>[,night] shows those conditions in
+  /// place of the real ones (0 clear, 3 overcast, 61 rain, 71 snow, 95
+  /// thunderstorm), for screenshots of the label's icons.
+  private static let demoConditions: (Int, Bool)? = {
+    guard let raw = ProcessInfo.processInfo.environment["MENU_WIDGETS_WEATHER_DEMO"] else { return nil }
+    let parts = raw.split(separator: ",")
+    guard let code = parts.first.flatMap({ Int($0) }) else { return nil }
+    return (code, !parts.dropFirst().contains("night"))
+  }()
   var rows: [Weather.Day] {
     Weather.buildForecastRows(activeOpenMeteo, today: today, limit: settings.forecastDays, nwsDays: activeNwsDays,
       nwsHours: activeNwsHours)
