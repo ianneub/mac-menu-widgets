@@ -100,7 +100,7 @@ Weather are shown with a row hovered, and its detail pane beside the panel.
 
 ### Weather
 
-<img src="Assets/screenshots/weather.png" alt="The Weather panel: current conditions and a ten-day forecast, with Thursday's hourly chance of rain, temperature and wind beside it">
+<img src="Assets/screenshots/weather.png" alt="The Weather panel: current conditions and a ten-day forecast, with Friday's hourly chance of rain, temperature and wind beside it">
 
 ### Reminders
 

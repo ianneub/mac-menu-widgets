@@ -2,15 +2,15 @@ import SwiftUI
 import WidgetsCore
 
 /// The card beside the forecast while a day row is hovered: the day's hourly
-/// chance of precipitation as bars, hourly temperature and wind lines, rain
+/// chance of precipitation, temperature and wind as bars, rain
 /// total, wind, UV, humidity, dew point and sun times, then NWS's own day and
 /// night narrative.
 struct DayDetailPane: View {
   @ObservedObject var service: WeatherService
   @ObservedObject var state: WeatherPanelState
 
-  /// The hour under the pointer in any chart, -1 for none; the bars, both
-  /// lines and the readout all follow it. (Kept on the state object: the
+  /// The hour under the pointer in any chart, -1 for none; all three charts
+  /// and the readout follow it. (Kept on the state object: the
   /// Command Line Tools ship no SwiftUIMacros plugin, so no @State.)
   private var hoverHour: Int { state.hoverHour }
 
@@ -65,15 +65,15 @@ struct DayDetailPane: View {
       }
 
       if let tempRange {
-        HourLine(title: "TEMPERATURE", values: tempValues, range: tempRange, suffix: "°", tickSuffix: "°",
-          labelLow: true, fill: false, chartHeight: 84, ctx: ctx)
+        HourBars(title: "TEMPERATURE", values: tempValues, range: tempRange, suffix: "°", tickSuffix: "°",
+          labelLow: true, chartHeight: 84, ctx: ctx)
           .onContinuousHover { hover("temp", $0) }
       }
 
       if let windRange {
         VStack(alignment: .leading, spacing: 4) {
-          HourLine(title: "WIND (\(windUnit.uppercased()))", values: windValues, range: windRange,
-            suffix: " \(windUnit)", tickSuffix: "", labelLow: false, fill: true, chartHeight: 64, ctx: ctx)
+          HourBars(title: "WIND (\(windUnit.uppercased()))", values: windValues, range: windRange,
+            suffix: " \(windUnit)", tickSuffix: "", labelLow: false, chartHeight: 64, ctx: ctx)
             .onContinuousHover { hover("wind", $0) }
           windArrows(slots, imperial: imperial, ctx: ctx)
         }
@@ -359,18 +359,17 @@ struct RainChart: View {
   }
 }
 
-/// An hourly line on the rain chart's hour axis: a section title, then the
-/// line over the range's gridlines (labelled in the left gutter), its
-/// extremes labelled. Past hours (today) are faint; hours no source covers
-/// break the line. `fill` shades down to the floor, for zero-based scales.
-struct HourLine: View {
+/// Hourly bars on the rain chart's hour axis: a section title, then a bar
+/// per hour rising from the range's floor over its gridlines (labelled in
+/// the left gutter), the extremes labelled above their bars. Past hours
+/// (today) are faint; hours no source covers have no bar.
+struct HourBars: View {
   let title: String
   let values: [Double?]
   let range: Weather.ValueRange
   let suffix: String
   let tickSuffix: String
   let labelLow: Bool
-  let fill: Bool
   let chartHeight: CGFloat
   let ctx: ChartContext
 
@@ -378,13 +377,15 @@ struct HourLine: View {
   var slotW: CGFloat { DayDetailPane.slotW }
   var width: CGFloat { DayDetailPane.contentW }
   var padTop: CGFloat { 16 }
-  var padBottom: CGFloat { fill ? 2 : 16 }
+  var padBottom: CGFloat { 2 }
 
   func value(_ h: Int) -> Double? { h >= 0 && h < values.count ? values[h] : nil }
   func xAt(_ h: Int) -> CGFloat { plotX + slotW * (CGFloat(h) + 0.5) }
   func yAt(_ v: Double) -> CGFloat {
     padTop + (1 - CGFloat((v - range.min) / range.span)) * (chartHeight - padTop - padBottom)
   }
+  // An hour at the floor still shows as a sliver.
+  func barTop(_ v: Double) -> CGFloat { min(yAt(v), yAt(range.min) - 2) }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -401,12 +402,12 @@ struct HourLine: View {
             .position(x: (plotX - 6) / 2, y: yAt(t))
         }
 
-        ForEach(extremes(), id: \.hour) { e in
-          if let v = value(e.hour) {
+        ForEach(extremes(), id: \.self) { h in
+          if let v = value(h) {
             Text("\(Weather.jsRound(v))\(suffix)")
               .font(.system(size: WeatherStyle.caption).monospacedDigit())
               .fixedSize()
-              .position(x: min(max(xAt(e.hour), plotX + 18), width - 22), y: e.above ? yAt(v) - 9 : yAt(v) + 9)
+              .position(x: min(max(xAt(h), plotX + 18), width - 22), y: barTop(v) - 9)
           }
         }
       }
@@ -415,8 +416,10 @@ struct HourLine: View {
     }
   }
 
-  /// The highest hour is labelled, and the lowest when labelLow.
-  private func extremes() -> [(hour: Int, above: Bool)] {
+  /// The hovered hour is labelled, else the highest, and the lowest too
+  /// when labelLow.
+  private func extremes() -> [Int] {
+    if ctx.hoverHour >= 0 { return value(ctx.hoverHour) == nil ? [] : [ctx.hoverHour] }
     var hi = -1, lo = -1
     for h in 0..<24 {
       guard let v = value(h) else { continue }
@@ -424,54 +427,33 @@ struct HourLine: View {
       if lo < 0 || v < value(lo)! { lo = h }
     }
     if hi < 0 { return [] }
-    return hi == lo || !labelLow ? [(hi, true)] : [(hi, true), (lo, false)]
+    return hi == lo || !labelLow ? [hi] : [hi, lo]
   }
 
   private func draw(_ g: GraphicsContext, _ size: CGSize) {
     for t in range.ticks {
-      let floor = fill && t == range.min
       var p = Path()
       let y = yAt(t).rounded() + 0.5
       p.move(to: CGPoint(x: plotX, y: y))
       p.addLine(to: CGPoint(x: size.width, y: y))
-      g.stroke(p, with: .color(.primary.opacity(floor ? 0.25 : 0.08)), lineWidth: 1)
+      g.stroke(p, with: .color(.primary.opacity(t == range.min ? 0.25 : 0.08)), lineWidth: 1)
     }
 
-    // One stroke per unbroken run of hours, shaded to the floor first when filling.
-    func runs(_ from: Int, _ to: Int, _ color: Color, _ area: Color?) {
-      var h = from
-      while h <= to {
-        while h <= to && value(h) == nil { h += 1 }
-        if h > to { break }
-        let start = h
-        while h + 1 <= to && value(h + 1) != nil { h += 1 }
-        let end = h
-        h += 1
-
-        if let area {
-          let base = yAt(range.min)
-          var a = Path()
-          a.move(to: CGPoint(x: xAt(start), y: base))
-          for k in start...end { a.addLine(to: CGPoint(x: xAt(k), y: yAt(value(k)!))) }
-          a.addLine(to: CGPoint(x: xAt(end), y: base))
-          a.closeSubpath()
-          g.fill(a, with: .color(area))
-        }
-        var line = Path()
-        line.move(to: CGPoint(x: xAt(start), y: yAt(value(start)!)))
-        for k in start...end where k > start { line.addLine(to: CGPoint(x: xAt(k), y: yAt(value(k)!))) }
-        if start == end { line.addLine(to: CGPoint(x: xAt(start) + 0.01, y: yAt(value(start)!))) }
-        g.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+    let base = yAt(range.min)
+    let gap: CGFloat = 2
+    for h in 0..<24 {
+      guard let v = value(h) else { continue }
+      let w = max(1, slotW - gap)
+      let top = barTop(v)
+      let rect = CGRect(x: plotX + slotW * CGFloat(h) + (slotW - w) / 2, y: top, width: w, height: base - top)
+      let r = min(3, w / 2)
+      let shape = UnevenRoundedRectangle(topLeadingRadius: r, topTrailingRadius: r).path(in: rect)
+      if ctx.isPast(h) {
+        g.fill(shape, with: .color(.primary.opacity(ctx.hoverHour == h ? 0.5 : 0.25)))
+      } else {
+        let opacity = ctx.hoverHour == h ? 1 : (ctx.hoverHour >= 0 ? 0.6 : 0.9)
+        g.fill(shape, with: .color(.accentColor.opacity(opacity)))
       }
-    }
-    let split = ctx.isToday ? max(0, min(23, ctx.nowHour)) : 0
-    if split > 0 { runs(0, split, .primary.opacity(0.3), fill ? .primary.opacity(0.06) : nil) }
-    runs(split, 23, .accentColor, fill ? .accentColor.opacity(0.16) : nil)
-
-    if ctx.hoverHour >= 0, let v = value(ctx.hoverHour) {
-      let dot = Path(ellipseIn: CGRect(x: xAt(ctx.hoverHour) - 4.5, y: yAt(v) - 4.5, width: 9, height: 9))
-      g.fill(dot, with: .color(.accentColor))
-      g.stroke(dot, with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: 2)
     }
   }
 }
