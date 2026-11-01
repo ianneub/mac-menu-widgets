@@ -264,11 +264,15 @@ struct WeatherPanel: View {
       state.step(1, count: rows.count)
       return .handled
     }
+    // Keys typed in the location field reach these handlers before the field
+    // does, and .handled would swallow them, so stand aside while it's open.
     .onKeyPress(.return) {
+      guard !state.editing else { return .ignored }
       state.startEditing()
       return .handled
     }
     .onKeyPress("r") {
+      guard !state.editing else { return .ignored }
       service.refresh()
       return .handled
     }
