@@ -39,7 +39,8 @@ private func slot(pop: Int? = nil, temp: Double? = nil, wind: Double? = nil, h: 
       ]) { $1 },
     ]]])))
     #expect(rows.count == 2)
-    #expect(rows[0] == W.Hour(date: "2026-10-04", hour: 23, pop: 61, tempF: 73, windMph: 0, windDir: nil, source: .nws))
+    #expect(rows[0] == W.Hour(date: "2026-10-04", hour: 23, pop: 61, tempF: 73, windMph: 0, windDir: nil,
+      start: W.nwsDate("2026-10-05T03:00:00Z"), source: .nws))
     #expect(rows[1].date == "2026-10-05")
     #expect(rows[1].hour == 0)
     #expect(rows[1].pop == 0)
@@ -99,6 +100,108 @@ private func slot(pop: Int? = nil, temp: Double? = nil, wind: Double? = nil, h: 
     let slots: [W.Hour?] = [nil, slot(pop: 30, h: 1), slot(pop: 50, h: 2), slot(pop: 50, h: 3), slot(pop: 0, h: 4)]
     #expect(W.peakPrecipHour(slots)?.hour == 2)
     #expect(W.peakPrecipHour([nil, slot(pop: 0, h: 1)]) == nil)
+  }
+
+  @Test func nwsGridUrlSitsAboveForecast() {
+    #expect(W.nwsGridURL("https://api.weather.gov/gridpoints/MRX/30,10/forecast")
+      == "https://api.weather.gov/gridpoints/MRX/30,10")
+    #expect(W.nwsGridURL("none") == "")
+    #expect(W.nwsGridURL("") == "")
+  }
+
+  @Test func isoDurations() {
+    #expect(W.isoDuration("PT3H") == 10800.0)
+    #expect(W.isoDuration("P1DT9H") == 118800.0)
+    #expect(W.isoDuration("P2D") == 172800.0)
+    #expect(W.isoDuration("PT90M") == 5400.0)
+    #expect(W.isoDuration("P1M") == nil)
+    #expect(W.isoDuration("PT3") == nil)
+    #expect(W.isoDuration("3H") == nil)
+    #expect(W.isoDuration("P") == nil)
+  }
+
+  @Test func nwsThunderReadsSpansAndSkipsBadOnes() throws {
+    let spans = try #require(W.nwsThunder(json(["properties": ["probabilityOfThunder": ["values": [
+      ["validTime": "2026-11-04T12:00:00+00:00/PT3H", "value": 23],
+      ["validTime": "2026-11-04T15:00:00+00:00/nonsense", "value": 26],
+      ["validTime": "2026-11-04T18:00:00+00:00/PT3H", "value": NSNull()],
+    ]]]])))
+    let start = try #require(W.nwsDate("2026-11-04T12:00:00Z"))
+    #expect(spans == [W.ThunderSpan(start: start, end: start + 3 * 3600, chance: 23)])
+    #expect(W.nwsThunder(json(["properties": [:]])) == [])
+    #expect(W.nwsThunder(Data("<html>500</html>".utf8)) == nil)
+    #expect(W.nwsThunder(json(["status": 500])) == nil)
+  }
+
+  // The span is in UTC and the hours are in local time, so they have to meet
+  // on the absolute time: 7 am EST is 12:00 UTC.
+  @Test func withThunderMatchesLocalHoursToUtcSpans() throws {
+    let hours = try #require(W.nwsHourly(json(["properties": ["periods": [
+      nwsHour("2026-11-04T06:00:00-05:00", 40, 60),
+      nwsHour("2026-11-04T07:00:00-05:00", 69, 60),
+      nwsHour("2026-11-04T09:00:00-05:00", 69, 60),
+      nwsHour("2026-11-04T10:00:00-05:00", 69, 60),
+    ]]])))
+    let start = try #require(W.nwsDate("2026-11-04T12:00:00+00:00"))
+    let out = W.withThunder(hours, [W.ThunderSpan(start: start, end: start + 3 * 3600, chance: 23)])
+    #expect(out.map(\.thunderChance) == [nil, 23, 23, nil])
+    #expect(W.withThunder(hours, []) == hours)
+  }
+
+  @Test func thunderFlaggedByNwsTextOrIconAndOpenMeteoCode() throws {
+    let rows = try #require(W.nwsHourly(json(["properties": ["periods": [
+      nwsHour("2026-11-04T07:00:00-05:00", 69, 60).merging(["shortForecast": "Showers And Thunderstorms Likely"]) { $1 },
+      nwsHour("2026-11-04T08:00:00-05:00", 69, 60).merging(
+        ["icon": "https://api.weather.gov/icons/land/day/tsra,70?size=small"]) { $1 },
+      nwsHour("2026-11-04T09:00:00-05:00", 69, 60).merging(["shortForecast": "Rain Showers Likely"]) { $1 },
+    ]]])))
+    #expect(rows.map(\.thunderForecast) == [true, true, false])
+
+    let report = try #require(W.OpenMeteoReport.parse(json(["hourly": [
+      "time": ["2026-10-04T00:00", "2026-10-04T01:00", "2026-10-04T02:00", "2026-10-04T03:00", "2026-10-04T04:00"],
+      "weather_code": [95, 96, 99, 61, NSNull()],
+    ]])))
+    #expect(W.openMeteoHourly(report).map(\.thunderForecast) == [true, true, true, false, false])
+  }
+
+  @Test func openMeteoAsksForHourlyWeatherCodes() throws {
+    let point = try #require(W.forecastPoint(latitude: 35, longitude: -85))
+    #expect(W.openMeteoURL(point: point, forecastDays: 10).absoluteString.contains("dew_point_2m,weather_code&"))
+  }
+
+  @Test func thunderLevels() {
+    func level(_ chance: Int?, named: Bool = false) -> W.ThunderLevel? {
+      W.thunderLevel(W.Hour(date: "2026-11-04", hour: 0, pop: 90, tempF: nil, windMph: nil,
+        thunderChance: chance, thunderForecast: named, source: .nws))
+    }
+    #expect(W.thunderLevel(nil) == nil)
+    #expect(level(nil) == nil)
+    #expect(level(0) == nil)
+    #expect(level(14) == nil)
+    #expect(level(15) == .slight)
+    #expect(level(24) == .slight)
+    #expect(level(25) == .chance)
+    #expect(level(54) == .chance)
+    #expect(level(55) == .likely)
+    #expect(level(100) == .likely)
+    #expect(level(nil, named: true) == .slight)
+    #expect(level(3, named: true) == .slight)
+    #expect(level(30, named: true) == .chance)
+  }
+
+  @Test func peakThunderHourAndLabel() {
+    func storm(_ h: Int, _ chance: Int?, named: Bool = false) -> W.Hour {
+      W.Hour(date: "2026-11-04", hour: h, pop: 90, tempF: nil, windMph: nil,
+        thunderChance: chance, thunderForecast: named, source: .nws)
+    }
+    let slots: [W.Hour?] = [nil, storm(1, 5), storm(2, 20), storm(3, 30), storm(4, 30)]
+    #expect(W.peakThunderHour(slots)?.hour == 3)
+    #expect(W.peakThunderHour([nil, storm(1, 5)]) == nil)
+    #expect(W.peakThunderHour([storm(1, nil, named: true), storm(2, 20)])?.hour == 2)
+    #expect(W.peakThunderHour([storm(1, nil, named: true)])?.hour == 1)
+    #expect(W.thunderLabel(storm(3, 30)) == "30%")
+    #expect(W.thunderLabel(storm(1, nil, named: true)) == "possible")
+    #expect(W.thunderLabel(storm(1, 5, named: true)) == "possible")
   }
 
   @Test func hourlyTempRange() {

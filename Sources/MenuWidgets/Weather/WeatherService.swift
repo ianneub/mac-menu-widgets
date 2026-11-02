@@ -12,6 +12,7 @@ final class WeatherService: ObservableObject {
   @Published private(set) var openMeteo: Weather.OpenMeteoReport?
   @Published private(set) var nwsDays: [Weather.Day] = []
   @Published private(set) var nwsHours: [Weather.Hour] = []
+  @Published private(set) var nwsThunder: [Weather.ThunderSpan] = []
   /// What the widget runs on: the config's settings, with the point and
   /// name replaced by the Mac's location when `useLocation` is on.
   @Published private(set) var settings: WidgetsConfig.WeatherSettings
@@ -31,6 +32,7 @@ final class WeatherService: ObservableObject {
   private var nwsForecastURL = ""  // "" unknown, "none" outside NWS coverage
   private var nwsDaysKey = ""
   private var nwsHoursKey = ""
+  private var nwsThunderKey = ""
   private var openMeteoKey = ""
 
   private var refreshTask: Task<Void, Never>?
@@ -139,7 +141,10 @@ final class WeatherService: ObservableObject {
 
   var activeOpenMeteo: Weather.OpenMeteoReport? { openMeteoKey == point?.key ? openMeteo : nil }
   var activeNwsDays: [Weather.Day] { nwsDaysKey == point?.key ? nwsDays : [] }
-  var activeNwsHours: [Weather.Hour] { nwsHoursKey == point?.key ? nwsHours : [] }
+  var activeNwsHours: [Weather.Hour] {
+    guard nwsHoursKey == point?.key else { return [] }
+    return nwsThunderKey == nwsHoursKey ? Weather.withThunder(nwsHours, nwsThunder) : nwsHours
+  }
 
   var current: Weather.Current? {
     guard var current = Weather.openMeteoCurrent(activeOpenMeteo) else { return nil }
@@ -216,7 +221,8 @@ final class WeatherService: ObservableObject {
   }
 
   /// /points maps the coordinates to a forecast office's grid (once per
-  /// location), then the daily and hourly gridpoint forecasts in parallel.
+  /// location), then the daily and hourly gridpoint forecasts and the chance
+  /// of thunder in parallel.
   private func fetchNws(_ point: Weather.Point) async {
     if nwsPointKey != point.key || nwsForecastURL.isEmpty {
       var resolved: Weather.NwsPoint?
@@ -241,12 +247,14 @@ final class WeatherService: ObservableObject {
       saveMeta()
     }
     guard nwsForecastURL != "none", let daily = URL(string: nwsForecastURL),
-      let hourly = URL(string: Weather.nwsHourlyURL(nwsForecastURL))
+      let hourly = URL(string: Weather.nwsHourlyURL(nwsForecastURL)),
+      let grid = URL(string: Weather.nwsGridURL(nwsForecastURL))
     else { return }
 
     async let d: Void = fetchNwsDaily(daily, point)
     async let h: Void = fetchNwsHourly(hourly, point)
-    _ = await (d, h)
+    async let t: Void = fetchNwsThunder(grid, point)
+    _ = await (d, h, t)
   }
 
   private func fetchNwsDaily(_ url: URL, _ point: Weather.Point) async {
@@ -271,6 +279,18 @@ final class WeatherService: ObservableObject {
       nwsHours = hours
       nwsHoursKey = point.key
       saveCache("nws-hourly", data, key: point.key)
+      return
+    }
+  }
+
+  private func fetchNwsThunder(_ url: URL, _ point: Weather.Point) async {
+    for attempt in 0...3 {
+      if Task.isCancelled { return }
+      if attempt > 0 { try? await Task.sleep(for: .seconds(5)) }
+      guard let (data, _) = await get(url, nws: true), let spans = Weather.nwsThunder(data) else { continue }
+      nwsThunder = spans
+      nwsThunderKey = point.key
+      saveCache("nws-grid", data, key: point.key)
       return
     }
   }
@@ -342,6 +362,10 @@ final class WeatherService: ObservableObject {
     if let d = read("nws-hourly"), let hours = Weather.nwsHourly(d) {
       nwsHours = hours
       nwsHoursKey = m.keys["nws-hourly"] ?? ""
+    }
+    if let d = read("nws-grid"), let spans = Weather.nwsThunder(d) {
+      nwsThunder = spans
+      nwsThunderKey = m.keys["nws-grid"] ?? ""
     }
   }
 }

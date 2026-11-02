@@ -54,15 +54,41 @@ public enum Weather {
     /// NWS hours only: the hour's dominant condition and whether it's night.
     public var nwsIconCode: String?
     public var nwsNight: Bool
+    /// NWS hours only: when the hour starts, to place it in the gridded data.
+    public var start: Date?
+    /// NWS's chance of thunder in percent, nil when it hasn't given one.
+    public var thunderChance: Int?
+    /// The hour's own forecast names thunderstorms. For NWS that's weaker
+    /// than `thunderChance`: its text says "Showers And Thunderstorms" for a
+    /// 97% chance of rain with a 30% chance of thunder.
+    public var thunderForecast: Bool
     public var source: HourSource
     public init(date: String, hour: Int, pop: Int?, tempF: Double?, windMph: Double?, windDir: Double? = nil,
       humidity: Double? = nil, dewPointF: Double? = nil, nwsIconCode: String? = nil, nwsNight: Bool = false,
-      source: HourSource) {
+      start: Date? = nil, thunderChance: Int? = nil, thunderForecast: Bool = false, source: HourSource) {
       self.date = date; self.hour = hour; self.pop = pop; self.tempF = tempF
       self.windMph = windMph; self.windDir = windDir
       self.humidity = humidity; self.dewPointF = dewPointF
-      self.nwsIconCode = nwsIconCode; self.nwsNight = nwsNight; self.source = source
+      self.nwsIconCode = nwsIconCode; self.nwsNight = nwsNight
+      self.start = start; self.thunderChance = thunderChance; self.thunderForecast = thunderForecast
+      self.source = source
     }
+  }
+
+  /// A stretch of hours with one chance of thunder, from NWS's gridpoint data.
+  public struct ThunderSpan: Equatable, Sendable {
+    public var start: Date
+    public var end: Date
+    public var chance: Int
+    public init(start: Date, end: Date, chance: Int) {
+      self.start = start; self.end = end; self.chance = chance
+    }
+  }
+
+  /// How likely thunder is in an hour, on the bands NWS's own wording uses.
+  public enum ThunderLevel: Int, Comparable, Sendable {
+    case slight, chance, likely
+    public static func < (a: ThunderLevel, b: ThunderLevel) -> Bool { a.rawValue < b.rawValue }
   }
 
   public struct ValueRange: Equatable, Sendable {
@@ -134,6 +160,7 @@ public enum Weather {
       public var wind_direction_10m: [Double?]?
       public var relative_humidity_2m: [Double?]?
       public var dew_point_2m: [Double?]?
+      public var weather_code: [Double?]?
     }
     public struct CurrentBlock: Codable, Sendable, Equatable {
       public var temperature_2m: Double?
@@ -158,7 +185,7 @@ public enum Weather {
       .init(name: "latitude", value: String(point.latitude)),
       .init(name: "longitude", value: String(point.longitude)),
       .init(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max,wind_gusts_10m_max"),
-      .init(name: "hourly", value: "temperature_2m,precipitation_probability,wind_speed_10m,wind_direction_10m,relative_humidity_2m,dew_point_2m"),
+      .init(name: "hourly", value: "temperature_2m,precipitation_probability,wind_speed_10m,wind_direction_10m,relative_humidity_2m,dew_point_2m,weather_code"),
       .init(name: "current", value: "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"),
       .init(name: "forecast_days", value: String(min(16, forecastDayLimit(forecastDays) + 1))),
       .init(name: "timezone", value: "auto"),
@@ -352,6 +379,12 @@ public enum Weather {
   public static func nwsHourlyURL(_ forecastURL: String) -> String {
     if forecastURL.isEmpty || forecastURL == "none" { return "" }
     return forecastURL.replacingOccurrences(of: #"/forecast/?$"#, with: "/forecast/hourly", options: .regularExpression)
+  }
+
+  /// The gridpoint's raw data, which has the chance of thunder.
+  public static func nwsGridURL(_ forecastURL: String) -> String {
+    if forecastURL.isEmpty || forecastURL == "none" { return "" }
+    return forecastURL.replacingOccurrences(of: #"/forecast/?$"#, with: "", options: .regularExpression)
   }
 
   static func number(_ v: Any?) -> Double? {
@@ -551,6 +584,7 @@ public enum Weather {
     return periods.compactMap { p in
       guard let (date, hour) = stampParts(p["startTime"] as? String ?? "") else { return nil }
       let icon = nwsIconCode(p["icon"] as? String ?? "")
+      let short = p["shortForecast"] as? String ?? ""
       return Hour(
         date: date, hour: hour,
         pop: jsRound(nwsValue(p["probabilityOfPrecipitation"]) ?? 0),
@@ -561,6 +595,8 @@ public enum Weather {
         dewPointF: nwsDewPointF(p["dewpoint"]),
         nwsIconCode: icon.isEmpty ? nil : icon,
         nwsNight: !(p["isDaytime"] as? Bool ?? true),
+        start: nwsDate(p["startTime"] as? String ?? ""),
+        thunderForecast: icon.hasPrefix("tsra") || short.localizedCaseInsensitiveContains("thunder"),
         source: .nws)
     }
   }
@@ -577,8 +613,97 @@ public enum Weather {
         windDir: at(h.wind_direction_10m, i),
         humidity: at(h.relative_humidity_2m, i),
         dewPointF: at(h.dew_point_2m, i).map(celsiusToFahrenheit),
+        thunderForecast: at(h.weather_code, i).map(isThunderCode) ?? false,
         source: .openMeteo)
     }
+  }
+
+  // MARK: - Thunder
+
+  // ISO8601DateFormatter is thread-safe, so this is shared.
+  nonisolated(unsafe) private static let nwsDateParser = ISO8601DateFormatter()
+
+  static func nwsDate(_ stamp: String) -> Date? { nwsDateParser.date(from: stamp) }
+
+  /// WMO 95 (thunderstorm), 96 and 99 (with hail).
+  static func isThunderCode(_ code: Double) -> Bool { [95, 96, 99].contains(Int(code)) }
+
+  /// "PT3H" or "P1DT9H" → seconds, nil for anything else.
+  static func isoDuration(_ text: String) -> TimeInterval? {
+    guard text.hasPrefix("P") else { return nil }
+    var total: TimeInterval = 0
+    var digits = ""
+    var inTime = false
+    for c in text.dropFirst() {
+      if c.isNumber { digits.append(c); continue }
+      if c == "T" { inTime = true; continue }
+      guard let n = Double(digits) else { return nil }
+      digits = ""
+      switch (c, inTime) {
+      case ("D", false): total += n * 86400
+      case ("H", true): total += n * 3600
+      case ("M", true): total += n * 60
+      default: return nil
+      }
+    }
+    return digits.isEmpty && total > 0 ? total : nil
+  }
+
+  /// NWS gridpoint data → its chance of thunder over time, nil on anything
+  /// unusable. A block it can't read is left out, which shows as no chance
+  /// given, not as no thunder.
+  public static func nwsThunder(_ data: Data) -> [ThunderSpan]? {
+    guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let props = obj["properties"] as? [String: Any]
+    else { return nil }
+    let values = (props["probabilityOfThunder"] as? [String: Any])?["values"] as? [[String: Any]] ?? []
+    return values.compactMap { v in
+      let parts = (v["validTime"] as? String ?? "").split(separator: "/")
+      guard parts.count == 2, let start = nwsDate(String(parts[0])), let length = isoDuration(String(parts[1])),
+        let chance = nwsValue(v["value"])
+      else { return nil }
+      return ThunderSpan(start: start, end: start + length, chance: jsRound(chance))
+    }
+  }
+
+  /// `hours` with each one's chance of thunder filled in from `spans`.
+  public static func withThunder(_ hours: [Hour], _ spans: [ThunderSpan]) -> [Hour] {
+    if spans.isEmpty { return hours }
+    return hours.map { h in
+      guard let t = h.start, let span = spans.first(where: { $0.start <= t && t < $0.end }) else { return h }
+      var out = h
+      out.thunderChance = span.chance
+      return out
+    }
+  }
+
+  /// How likely thunder is, nil when it's not worth showing. Below 15% NWS
+  /// doesn't mention thunder at all. A forecast that names thunderstorms
+  /// counts as slight, whether it has no chance to go by (Open-Meteo, or the
+  /// gridpoint request failed) or a lower one.
+  public static func thunderLevel(_ slot: Hour?) -> ThunderLevel? {
+    guard let slot else { return nil }
+    switch slot.thunderChance ?? 0 {
+    case 55...: return .likely
+    case 25...: return .chance
+    case 15...: return .slight
+    default: return slot.thunderForecast ? .slight : nil
+    }
+  }
+
+  /// The stormiest hour (earliest on a tie), nil when there's no thunder.
+  public static func peakThunderHour(_ slots: [Hour?]) -> Hour? {
+    var best: Hour?
+    for case let s? in slots where thunderLevel(s) != nil {
+      if best == nil || (s.thunderChance ?? 0) > (best!.thunderChance ?? 0) { best = s }
+    }
+    return best
+  }
+
+  /// "30%", or "possible" for an hour without a usable chance.
+  public static func thunderLabel(_ slot: Hour?) -> String {
+    guard let chance = slot?.thunderChance, chance >= 15 else { return "possible" }
+    return "\(chance)%"
   }
 
   /// One slot per hour of `date`: NWS's hour when it has one, Open-Meteo's

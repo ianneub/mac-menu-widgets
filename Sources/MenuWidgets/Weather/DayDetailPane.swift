@@ -2,8 +2,8 @@ import SwiftUI
 import WidgetsCore
 
 /// The card beside the forecast while a day row is hovered: the day's hourly
-/// chance of precipitation, temperature and wind as bars, rain
-/// total, wind, UV, humidity, dew point and sun times, then NWS's own day and
+/// chance of precipitation (with a bolt under hours that may bring thunder),
+/// temperature and wind as bars, rain total, wind, UV, humidity, dew point and sun times, then NWS's own day and
 /// night narrative.
 struct DayDetailPane: View {
   @ObservedObject var service: WeatherService
@@ -55,7 +55,9 @@ struct DayDetailPane: View {
           HStack(alignment: .firstTextBaseline) {
             SectionHeader("CHANCE OF PRECIPITATION")
             Spacer()
-            Text(readout(slots, imperial: imperial, hasHours: hasHours))
+            readout(slots, imperial: imperial, hasHours: hasHours)
+              .lineLimit(1)
+              .fixedSize()
               .font(.system(size: WeatherStyle.bodySmall).monospacedDigit())
               .foregroundStyle(hoverHour >= 0 ? Color.primary : Color.secondary)
           }
@@ -122,22 +124,27 @@ struct DayDetailPane: View {
     }
   }
 
-  private func readout(_ slots: [Weather.Hour?], imperial: Bool, hasHours: Bool) -> String {
+  private func readout(_ slots: [Weather.Hour?], imperial: Bool, hasHours: Bool) -> Text {
+    let bolt = Text(Image(systemName: "bolt.fill")).foregroundColor(.orange)
     if hoverHour >= 0 {
-      guard let s = slots[hoverHour] else { return Weather.hourLabel(hoverHour) + "  ·  no data" }
-      var text = Weather.hourLabel(hoverHour) + "  ·  " + (s.pop.map { "\($0)%" } ?? "—")
-      if let t = Weather.tempValue(s, imperial: imperial) { text += "  ·  \(Weather.jsRound(t))°" }
+      guard let s = slots[hoverHour] else { return Text(Weather.hourLabel(hoverHour) + "  ·  no data") }
+      let rain = Weather.hourLabel(hoverHour) + "  ·  " + (s.pop.map { "\($0)%" } ?? "—")
+      let storm = Weather.thunderLevel(s) == nil ? Text("") : Text("  ·  \(bolt) \(Weather.thunderLabel(s))")
+      var rest = ""
+      if let t = Weather.tempValue(s, imperial: imperial) { rest += "  ·  \(Weather.jsRound(t))°" }
       if let w = Weather.windValue(s, imperial: imperial) {
         let dir = Weather.compassName(s.windDir)
-        text += "  ·  " + (dir.isEmpty ? "" : dir + " ") + "\(Weather.jsRound(w)) \(imperial ? "mph" : "km/h")"
+        rest += "  ·  " + (dir.isEmpty ? "" : dir + " ") + "\(Weather.jsRound(w)) \(imperial ? "mph" : "km/h")"
       }
-      return text
+      return Text("\(rain)\(storm)\(rest)")
     }
-    if !hasHours { return "" }
+    if !hasHours { return Text("") }
+    var rain = "No rain expected"
     if let peak = Weather.peakPrecipHour(slots), let pop = peak.pop {
-      return "Peak \(pop)% at \(Weather.hourLabel(peak.hour))"
+      rain = "Peak \(pop)% at \(Weather.hourLabel(peak.hour))"
     }
-    return "No rain expected"
+    guard let storm = Weather.peakThunderHour(slots) else { return Text(rain) }
+    return Text("\(rain)  ·  \(bolt) \(Weather.thunderLabel(storm)) at \(Weather.hourLabel(storm.hour))")
   }
 
   private func header(_ day: Weather.Day, imperial: Bool) -> some View {
@@ -282,16 +289,30 @@ struct RainChart: View {
   let ctx: ChartContext
   let peak: Weather.Hour?
 
-  static let height: CGFloat = 112
+  static let plainHeight: CGFloat = 112
   static let labelRoom: CGFloat = 16
   static let axisRoom: CGFloat = 18
-  static var plotH: CGFloat { height - labelRoom - axisRoom }
+  static var plotH: CGFloat { plainHeight - labelRoom - axisRoom }
+  /// The row of bolts under the bars, on days that have any.
+  static let thunderRoom: CGFloat = 14
+  var levels: [Weather.ThunderLevel?] { slots.map(Weather.thunderLevel) }
+  var thunderRow: CGFloat { levels.contains { $0 != nil } ? Self.thunderRoom : 0 }
+  var height: CGFloat { Self.plainHeight + thunderRow }
   var plotX: CGFloat { DayDetailPane.gutter }
   var slotW: CGFloat { DayDetailPane.slotW }
   var width: CGFloat { DayDetailPane.contentW }
 
   func barHeight(_ pop: Int) -> CGFloat { CGFloat(max(0, min(100, pop))) / 100 * Self.plotH }
   func yAt(_ pop: Int) -> CGFloat { Self.labelRoom + Self.plotH - barHeight(pop) }
+  func opacity(_ h: Int) -> Double { ctx.hoverHour == h ? 1 : (ctx.isPast(h) ? 0.3 : (ctx.hoverHour >= 0 ? 0.6 : 0.9)) }
+
+  static func boltSize(_ level: Weather.ThunderLevel) -> CGFloat {
+    switch level {
+    case .slight: return 8
+    case .chance: return 10
+    case .likely: return 12
+    }
+  }
 
   var body: some View {
     ZStack(alignment: .topLeading) {
@@ -322,11 +343,10 @@ struct RainChart: View {
           let rect = CGRect(x: plotX + slotW * CGFloat(h) + (slotW - w) / 2, y: Self.labelRoom + Self.plotH - bh, width: w, height: bh)
           let r = min(3, w / 2)
           let shape = UnevenRoundedRectangle(topLeadingRadius: r, topTrailingRadius: r).path(in: rect)
-          let opacity = ctx.hoverHour == h ? 1 : (ctx.isPast(h) ? 0.3 : (ctx.hoverHour >= 0 ? 0.6 : 0.9))
-          g.fill(shape, with: .color(.accentColor.opacity(opacity)))
+          g.fill(shape, with: .color(.accentColor.opacity(opacity(h))))
         }
       }
-      .frame(width: width, height: Self.height)
+      .frame(width: width, height: height)
 
       ForEach([0, 50, 100], id: \.self) { q in
         Text("\(q)%")
@@ -346,15 +366,25 @@ struct RainChart: View {
           .position(x: min(max(x, plotX + 16), width - 14), y: yAt(pop) - 9)
       }
 
+      ForEach(Array(levels.enumerated()), id: \.offset) { h, level in
+        if let level {
+          Image(systemName: "bolt.fill")
+            .font(.system(size: Self.boltSize(level)))
+            .foregroundStyle(.orange)
+            .opacity(opacity(h))
+            .position(x: plotX + slotW * (CGFloat(h) + 0.5), y: Self.labelRoom + Self.plotH + 3 + Self.thunderRoom / 2)
+        }
+      }
+
       ForEach([0, 6, 12, 18], id: \.self) { h in
         Text(h == 12 ? "Noon" : Weather.hourLabel(h).replacingOccurrences(of: " ", with: ""))
           .font(.system(size: WeatherStyle.caption))
           .foregroundStyle(.secondary)
           .fixedSize()
-          .position(x: plotX + slotW * (CGFloat(h) + 0.5), y: Self.labelRoom + Self.plotH + 4 + 7)
+          .position(x: plotX + slotW * (CGFloat(h) + 0.5), y: Self.labelRoom + Self.plotH + thunderRow + 4 + 7)
       }
     }
-    .frame(width: width, height: Self.height)
+    .frame(width: width, height: height)
     .contentShape(Rectangle())
   }
 }

@@ -34,7 +34,10 @@ run commands from global keyboard shortcuts, optionally only in certain apps
   forecast with the chance of rain per day (its wettest hour, midnight to
   midnight). Hover a day for its hourly rain, temperature and wind, plus that
   day's humidity at the hottest hour from 10 am to 3 pm, the highest dew
-  point in those hours, UV and sunrise and sunset. For US locations the
+  point in those hours, UV and sunrise and sunset. A bolt under an hour's rain
+  bar means thunder is possible, bigger the more likely it is; hover the hour
+  for the chance (NWS gives a percentage from 15% up; Open-Meteo says only
+  that a storm is forecast, shown as "possible"). For US locations the
   forecast's first seven days come from the National Weather Service (what
   weather.gov shows); current conditions, the days after that, places
   elsewhere and the fallback come from [Open-Meteo](https://open-meteo.com).
