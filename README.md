@@ -25,7 +25,12 @@ run commands from global keyboard shortcuts, optionally only in certain apps
   local time, the moon phase and your world clocks with their offsets. Hover
   the local time or a zone for a day/night map, sun and moon rise and set,
   day length, twilight and the blue and golden hours (the local time's are
-  for where your Mac is); hover the moon for its coming phases. The first
+  for where your Mac is); hover the moon for its coming phases. Drag the
+  slider under the local time (or press ←/→, with Shift for a whole hour) to
+  see another time of day, up to 24 hours back or ahead: the local time, every
+  zone and the detail pane move to it, a quarter hour at a time, landing on
+  :00, :15, :30 and :45 of the local clock. The ✕ beside the slider's label,
+  or Esc, returns to now, as does closing the panel. The first
   time the panel opens, macOS asks whether MenuWidgets may use your calendars
   and your location.
 - **Weather** shows the current conditions and temperature where your Mac is

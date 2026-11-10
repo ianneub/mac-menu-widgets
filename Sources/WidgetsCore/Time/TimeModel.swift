@@ -290,6 +290,38 @@ public enum TimeModel {
       rel: days <= 0 ? "today" : days == 1 ? "tomorrow" : "in \(days) days")
   }
 
+  // MARK: Time slider
+
+  /// The slider moves the shown time a quarter hour at a time, up to a day
+  /// either way.
+  public static let shiftStepMinutes = 15
+  public static let shiftMaxSteps = 24 * 60 / shiftStepMinutes
+
+  /// The instant the time slider shows, `steps` quarter hours from now. 0 is
+  /// now itself. Any other step lands on a quarter hour of the local clock:
+  /// from 3:07, one step forward is 3:15 and one back is 3:00, since a round
+  /// time is what one asks about ("what's 4:00 here in London?").
+  public static func shiftedTime(_ nowMs: Double, steps: Int, localOffset: Int) -> Double {
+    guard steps != 0 else { return nowMs }
+    let step = Double(shiftStepMinutes) * minute
+    let off = Double(localOffset) * minute
+    let wall = floor((nowMs + off) / minute) * minute
+    let quarter = steps > 0 ? floor(wall / step) : ceil(wall / step)
+    return (quarter + Double(steps)) * step - off
+  }
+
+  /// How far the slider's time is from now, counted in the clock's minutes,
+  /// with the day when it isn't today: "in 2h 53m", "45m ago",
+  /// "in 17h · Tomorrow".
+  public static func shiftLabel(_ shiftedMs: Double, _ nowMs: Double, tz: TimeZone = .current) -> String {
+    let mins = Int(floor(shiftedMs / minute)) - Int(floor(nowMs / minute))
+    if mins == 0 { return "Now" }
+    let h = abs(mins) / 60, m = abs(mins) % 60
+    let span = h == 0 ? "\(m)m" : m == 0 ? "\(h)h" : "\(h)h \(m)m"
+    let day = dayDeltaLabel(dayDiff(shiftedMs, nowMs, tz))
+    return (mins > 0 ? "in " + span : span + " ago") + (day.isEmpty ? "" : " · " + day)
+  }
+
   // MARK: Detail pane
 
   /// Midnight at the start of the zone's current day, as UTC ms.

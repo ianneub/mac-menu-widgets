@@ -4,8 +4,9 @@ import WidgetsCore
 /// The card that floats beside the world clock while a row is hovered, after
 /// iStat Menus' location detail: a day/night map, sun and moon times, the sun
 /// and moon over the next and last 12 hours, twilight and magic hours. Times
-/// are the place's own wall clock. Without coordinates (UTC) only the map and
-/// a hint are shown.
+/// are the place's own wall clock, and "now" is the time slider's time when
+/// it has been moved. Without coordinates (UTC) only the map and a hint are
+/// shown.
 struct TimeDetailPane: View {
   @ObservedObject var state: TimeState
   let index: Int
@@ -25,7 +26,7 @@ struct TimeDetailPane: View {
 
   @ViewBuilder
   private func content(_ place: TimePlace) -> some View {
-    let nowMs = state.nowMs
+    let nowMs = state.shownMs
     let use24h = state.use24h
     let info = TimePlaceAstro(place: place, nowMs: nowMs)
     let t = { (ms: Double?) in TimeModel.timeInZone(ms, place.offset, use24h) }

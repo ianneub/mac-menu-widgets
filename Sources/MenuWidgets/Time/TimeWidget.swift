@@ -4,7 +4,8 @@ import WidgetsCore
 /// World clock, after ianneub.time on the Omarchy desktop (itself after the
 /// iStat Menus time dropdown): the time in the menu bar; the popup has the
 /// local time, the moon and the configured zones, with a detail pane beside
-/// it for whichever row is hovered or picked with ↑/↓.
+/// it for whichever row is hovered or picked with ↑/↓, and a slider that
+/// moves the clocks to another time of day.
 @MainActor
 final class TimeWidget: MenuWidget {
   let id = "time"
@@ -59,11 +60,15 @@ final class TimeWidget: MenuWidget {
       render(TimeDetailPane(state: state, index: i), "detail-\(n)")
     }
     render(TimeMoonPane(state: state), "moon")
+    state.setShift(38)
+    render(TimePanel(state: state, host: host), "panel-shifted")
+    render(TimeDetailPane(state: state, index: 0), "detail-london-shifted")
     NSApp.terminate(nil)
   }
 
   func popupWillOpen() { state.popupWillOpen() }
   func popupDidClose() { state.popupDidClose() }
+  func handleEscape() -> Bool { state.escape() }
 }
 
 private struct TimeBarLabel: View {

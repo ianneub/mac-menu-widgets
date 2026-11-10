@@ -165,3 +165,45 @@ private func local(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int) -> Double
   #expect(WorldMap.land.count == 119)
   #expect(WorldMap.land.allSatisfy { $0.count % 2 == 0 })
 }
+
+@Test func timeShiftSnapsToLocalQuarterHours() {
+  let now = local(2026, 11, 9, 15, 7) + 20_000  // 3:07:20 PM EST
+  #expect(M.shiftedTime(now, steps: 0, localOffset: -300) == now)
+  #expect(M.shiftedTime(now, steps: 1, localOffset: -300) == local(2026, 11, 9, 15, 15))
+  #expect(M.shiftedTime(now, steps: 2, localOffset: -300) == local(2026, 11, 9, 15, 30))
+  #expect(M.shiftedTime(now, steps: -1, localOffset: -300) == local(2026, 11, 9, 15, 0))
+  #expect(M.shiftedTime(now, steps: -2, localOffset: -300) == local(2026, 11, 9, 14, 45))
+  // Already on a quarter hour: a full step each way.
+  let onQuarter = local(2026, 11, 9, 15, 15) + 50
+  #expect(M.shiftedTime(onQuarter, steps: 1, localOffset: -300) == local(2026, 11, 9, 15, 30))
+  #expect(M.shiftedTime(onQuarter, steps: -1, localOffset: -300) == local(2026, 11, 9, 15, 0))
+  // The ends of the slider: a day either way.
+  #expect(M.shiftMaxSteps == 96)
+  #expect(M.shiftedTime(onQuarter, steps: 96, localOffset: -300) == local(2026, 11, 10, 15, 15))
+  #expect(M.shiftedTime(onQuarter, steps: -96, localOffset: -300) == local(2026, 11, 8, 15, 15))
+  // The quarter hours are the local clock's, where the offset isn't a whole
+  // number of them (Kathmandu's was +05:41:16 until 1920; rounded here).
+  let odd = timeIsoMs("2026-07-01T12:00:00Z")  // 5:41 PM at +05:41
+  #expect(M.shiftedTime(odd, steps: 1, localOffset: 341) == timeIsoMs("2026-07-01T12:04:00Z"))
+  #expect(M.shiftedTime(odd, steps: -1, localOffset: 341) == timeIsoMs("2026-07-01T11:49:00Z"))
+}
+
+@Test func timeShiftLabels() {
+  let now = local(2026, 11, 9, 15, 7) + 20_000
+  func label(_ steps: Int) -> String {
+    M.shiftLabel(M.shiftedTime(now, steps: steps, localOffset: -300), now, tz: eastern)
+  }
+  #expect(label(0) == "Now")
+  #expect(label(1) == "in 8m")
+  #expect(label(-1) == "7m ago")
+  #expect(label(4) == "in 53m")
+  #expect(label(12) == "in 2h 53m")
+  #expect(label(-29) == "7h 7m ago")
+  #expect(label(36) == "in 8h 53m · Tomorrow")
+  // Midnight is still today; a quarter hour before it isn't.
+  #expect(label(-61) == "15h 7m ago")
+  #expect(label(-62) == "15h 22m ago · Yesterday")
+  let onHour = local(2026, 11, 9, 15, 0)
+  #expect(M.shiftLabel(M.shiftedTime(onHour, steps: 8, localOffset: -300), onHour, tz: eastern) == "in 2h")
+  #expect(M.shiftLabel(M.shiftedTime(onHour, steps: 96, localOffset: -300), onHour, tz: eastern) == "in 24h · Tomorrow")
+}

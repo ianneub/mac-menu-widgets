@@ -1,8 +1,8 @@
 import SwiftUI
 import WidgetsCore
 
-/// The world clock popup: the month calendar, hero local time, the moon, then one row per zone
-/// with its offset from here and its own wall clock.
+/// The world clock popup: the month calendar, hero local time, the time slider, the moon, then
+/// one row per zone with its offset from here and its own wall clock.
 struct TimePanel: View {
   @ObservedObject var state: TimeState
   @ObservedObject var host: PanelHost
@@ -13,9 +13,11 @@ struct TimePanel: View {
 
   var body: some View {
     let now = state.now
+    // The slider's time when it has been moved, else now.
+    let shown = state.shown
     let use24h = state.use24h
     let local = state.local
-    let c = Calendar.current.dateComponents([.hour, .minute], from: now)
+    let c = Calendar.current.dateComponents([.hour, .minute], from: shown)
     let clock = TimeModel.clockText(c.hour!, c.minute!, use24h)
     let moon = Astro.moonInfo(state.nowMs)
     // Rounded down so a moon a few hours short of full never reads "100%"
@@ -45,7 +47,7 @@ struct TimePanel: View {
             alt: TimeModel.clockLabel(c.hour!, c.minute!, !use24h), suffix: clock.suffix,
             suffixSize: 20, altSize: 13)
         }
-        Text(now.formatted(.dateTime.weekday(.wide).month(.wide).day()) + "  ·  "
+        Text(shown.formatted(.dateTime.weekday(.wide).month(.wide).day()) + "  ·  "
           + (local.abbr.isEmpty ? "" : local.abbr + " ") + "UTC" + TimeModel.offsetLabel(local.offset))
           .font(.callout)
           .foregroundStyle(.secondary)
@@ -54,6 +56,9 @@ struct TimePanel: View {
       .padding(.vertical, 4)
       .timeRowHighlight(state.shownIndex == TimeState.here)
       .onHover { $0 ? state.hoverEnter(TimeState.here) : state.hoverExit(TimeState.here) }
+
+      // ---- Another time of day, here and in every zone below.
+      TimeShiftSlider(state: state).padding(.horizontal, 8)
 
       Divider()
 
@@ -113,6 +118,12 @@ struct TimePanel: View {
     .focused($focused)
     .onKeyPress(.upArrow) { state.step(-1); return .handled }
     .onKeyPress(.downArrow) { state.step(1); return .handled }
+    // ←/→ move the slider a quarter hour, an hour with Shift.
+    .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+      let steps = press.modifiers.contains(.shift) ? 60 / TimeModel.shiftStepMinutes : 1
+      state.setShift(state.shiftSteps + (press.key == .leftArrow ? -steps : steps))
+      return .handled
+    }
     .onChange(of: state.openCount) { focused = true }
     .onChange(of: state.shownIndex) { updatePane() }
     .onChange(of: host.pointerInSidePane) { _, inside in if !inside { state.scheduleHide() } }

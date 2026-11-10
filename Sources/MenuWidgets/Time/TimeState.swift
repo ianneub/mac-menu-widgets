@@ -21,8 +21,8 @@ struct TimeZoneRow: Identifiable {
   var alt: String
 }
 
-/// Shared state for the time widget: the minute clock, the zones and which
-/// row's detail pane is showing.
+/// Shared state for the time widget: the minute clock, the zones, the time
+/// slider and which row's detail pane is showing.
 @MainActor
 final class TimeState: ObservableObject {
   /// Detail selection: -2 none, -1 here, 0.. a zone row; -3 is the moon row,
@@ -31,6 +31,10 @@ final class TimeState: ObservableObject {
 
   @Published private(set) var now = Date()
   @Published var shownIndex = TimeState.none
+  /// The time slider's position: quarter hours from now, 0 for now itself.
+  /// The local time, the zone rows and the detail pane show that time; the
+  /// menu bar, the calendar and the moon stay on now.
+  @Published private(set) var shiftSteps = 0
   /// Bumped each time the popup opens, so the panel can grab key focus.
   @Published var openCount = 0
   /// The moon row's top, in panel coordinates (for lining up its pop-out).
@@ -104,7 +108,14 @@ final class TimeState: ObservableObject {
   var showsCalendar: Bool { config.config.time.calendar }
   var zones: [WidgetsConfig.Zone] { TimeModel.normalizeZones(config.config.time.zones) }
   var nowMs: Double { now.timeIntervalSince1970 * 1000 }
-  var local: TimeModel.ZoneOffset { TimeModel.zoneOffset(.current, at: now) }
+  var isShifted: Bool { shiftSteps != 0 }
+  /// The time the popup's clocks show: now, or the slider's time.
+  var shownMs: Double {
+    TimeModel.shiftedTime(nowMs, steps: shiftSteps, localOffset: TimeZone.current.secondsFromGMT(for: now) / 60)
+  }
+  var shown: Date { Date(timeIntervalSince1970: shownMs / 1000) }
+  /// Offsets are read at the shown time, which may be across a DST change.
+  var local: TimeModel.ZoneOffset { TimeModel.zoneOffset(.current, at: shown) }
 
   var barText: String {
     TimeModel.barLabel(now, use24h, showDate: config.config.time.showDate)
@@ -113,16 +124,17 @@ final class TimeState: ObservableObject {
   func zoneOffset(_ i: Int) -> TimeModel.ZoneOffset? {
     let z = zones
     guard i >= 0, i < z.count, let tz = TimeZone(identifier: z[i].tz) else { return nil }
-    return TimeModel.zoneOffset(tz, at: now, id: z[i].tz)
+    return TimeModel.zoneOffset(tz, at: shown, id: z[i].tz)
   }
 
   var rows: [TimeZoneRow] {
     let localOffset = local.offset
+    let shownMs = shownMs
     return zones.enumerated().map { i, z in
       guard let off = zoneOffset(i) else {
         return TimeZoneRow(id: i, name: z.name, detail: "Unknown zone \(z.tz)", time: "", suffix: "", alt: "")
       }
-      let c = TimeModel.zoneClock(nowMs, off.offset, localOffset)
+      let c = TimeModel.zoneClock(shownMs, off.offset, localOffset)
       let t = TimeModel.clockText(c.hours, c.minutes, use24h)
       let day = TimeModel.dayDeltaLabel(c.dayDelta)
       return TimeZoneRow(
@@ -155,6 +167,20 @@ final class TimeState: ObservableObject {
   /// Every place with coordinates, for the map's dots.
   var mapDots: [TimeModel.Coord] {
     (-1..<zones.count).compactMap { place($0)?.coord }
+  }
+
+  // MARK: Time slider
+
+  func setShift(_ steps: Int) {
+    let clamped = max(-TimeModel.shiftMaxSteps, min(TimeModel.shiftMaxSteps, steps))
+    if clamped != shiftSteps { shiftSteps = clamped }
+  }
+
+  /// Esc with the slider moved returns to now and keeps the popup open.
+  func escape() -> Bool {
+    guard isShifted else { return false }
+    shiftSteps = 0
+    return true
   }
 
   // MARK: Hover and keys
@@ -228,5 +254,6 @@ final class TimeState: ObservableObject {
     hideWork?.cancel()
     hoverTarget = TimeState.none
     shownIndex = TimeState.none
+    setShift(0)
   }
 }
