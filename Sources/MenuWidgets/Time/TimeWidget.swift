@@ -27,15 +27,22 @@ final class TimeWidget: MenuWidget {
   /// MENU_WIDGETS_TIME_DETAIL=<n> opens the popup at launch with the pane on
   /// row n (-1 here, -3 the moon phases, 0.. the zones), for checking layout
   /// without a pointer. The desktop's `omarchy-shell ianneub.time detail <n>`.
+  /// MENU_WIDGETS_TIME_SHIFT=<steps> opens it with the time slider moved that
+  /// many quarter hours (negative for earlier), alone or with a pane.
   private func openForDebugging(_ host: PanelHost) {
     if let dir = ProcessInfo.processInfo.environment["MENU_WIDGETS_TIME_SNAPSHOT"] {
       DispatchQueue.main.async { [state] in Self.snapshot(state: state, host: host, to: dir) }
       return
     }
-    guard let raw = ProcessInfo.processInfo.environment["MENU_WIDGETS_TIME_DETAIL"], let n = Int(raw) else { return }
+    let detail = ProcessInfo.processInfo.environment["MENU_WIDGETS_TIME_DETAIL"].flatMap { Int($0) }
+    let shift = ProcessInfo.processInfo.environment["MENU_WIDGETS_TIME_SHIFT"].flatMap { Int($0) }
+    guard detail != nil || shift != nil else { return }
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [state] in
       host.controller?.open()
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { state.shownIndex = n }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        if let shift { state.setShift(shift) }
+        if let detail { state.shownIndex = detail }
+      }
     }
   }
 
