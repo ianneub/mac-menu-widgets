@@ -87,12 +87,20 @@ struct TimePanel: View {
 
       TimeSectionHeader("WORLD CLOCK").padding(.horizontal, 8)
 
-      // ---- One row per zone: name and offset left, its time right.
+      // ---- One row per zone: name, day and offset left, its time right.
       VStack(spacing: 2) {
         ForEach(state.rows) { row in
           HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 1) {
-              Text(row.name).font(.title3).lineLimit(1)
+              // The day sits by the name: after the offset it didn't fit
+              // beside a time as wide as "12:35 AM". A long name gives way
+              // to it.
+              HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(row.name).font(.title3).lineLimit(1)
+                if !row.day.isEmpty {
+                  Text(row.day).font(.callout).foregroundStyle(.secondary).fixedSize()
+                }
+              }
               Text(row.detail).font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

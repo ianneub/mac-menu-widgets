@@ -101,11 +101,12 @@ The menu-bar labels, in each of their states:
 
 The panels, with made-up reminders, mail and calendar events. Time and
 Weather are shown with a row hovered, and its detail pane beside the panel.
-Time's slider is moved to earlier in the day.
+Time's slider is moved to later in the evening, when London is already on
+tomorrow.
 
 ### Time
 
-<img src="Assets/screenshots/time.png" alt="The Time panel: a month calendar with today's events, the local time with the slider under it moved back to 2:45 PM, the moon and world clocks at that time, with London's day/night map, sun and moon times, twilight and golden hours beside it">
+<img src="Assets/screenshots/time.png" alt="The Time panel: a month calendar with today's events, the local time with the slider under it moved ahead to 9:00 PM, the moon and world clocks at that time, London and UTC marked Tomorrow, with London's day/night map, sun and moon times, twilight and golden hours beside it">
 
 ### Weather
 

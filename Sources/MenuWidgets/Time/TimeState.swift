@@ -15,6 +15,8 @@ struct TimePlace: Equatable {
 struct TimeZoneRow: Identifiable {
   let id: Int
   var name: String
+  /// "Tomorrow" or "Yesterday" when the zone is on another day than here.
+  var day: String
   var detail: String
   var time: String
   var suffix: String
@@ -132,15 +134,13 @@ final class TimeState: ObservableObject {
     let shownMs = shownMs
     return zones.enumerated().map { i, z in
       guard let off = zoneOffset(i) else {
-        return TimeZoneRow(id: i, name: z.name, detail: "Unknown zone \(z.tz)", time: "", suffix: "", alt: "")
+        return TimeZoneRow(id: i, name: z.name, day: "", detail: "Unknown zone \(z.tz)", time: "", suffix: "", alt: "")
       }
       let c = TimeModel.zoneClock(shownMs, off.offset, localOffset)
       let t = TimeModel.clockText(c.hours, c.minutes, use24h)
-      let day = TimeModel.dayDeltaLabel(c.dayDelta)
       return TimeZoneRow(
-        id: i, name: z.name,
-        detail: TimeModel.relativeLabel(off.offset, localOffset) + " (" + TimeModel.offsetLabel(off.offset) + ")"
-          + (day.isEmpty ? "" : " · " + day),
+        id: i, name: z.name, day: TimeModel.dayDeltaLabel(c.dayDelta),
+        detail: TimeModel.relativeLabel(off.offset, localOffset) + " (" + TimeModel.offsetLabel(off.offset) + ")",
         time: t.time, suffix: t.suffix,
         alt: TimeModel.clockLabel(c.hours, c.minutes, !use24h))
     }
